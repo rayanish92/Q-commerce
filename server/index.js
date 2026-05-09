@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
-// We will uncomment mongoose once you have your database URL
-// const mongoose = require('mongoose'); 
+const mongoose = require('mongoose');
+require('dotenv').config();
 
 const app = express();
 
@@ -9,17 +9,21 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// A simple test route so Render can show us it works
+// MongoDB Connection
+// process.env.MONGO_URI tells the code to look at Render's secure variables
+mongoose.connect(process.env.MONGO_URI)
+  .then(() => console.log("MongoDB Connected Successfully!"))
+  .catch((err) => console.log("MongoDB Connection Error: ", err));
+
+// Test Route
 app.get('/', (req, res) => {
   res.json({ 
     status: "Success",
-    message: "Quick Commerce API is live and running!" 
+    message: "Quick Commerce API & Database are live!" 
   });
 });
 
-// Use Render's port, or default to 5000
 const PORT = process.env.PORT || 5000;
-
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
