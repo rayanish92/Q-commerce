@@ -9,11 +9,15 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// MongoDB Connection
-// process.env.MONGO_URI tells the code to look at Render's secure variables
+// Connect to Database
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log("MongoDB Connected Successfully!"))
   .catch((err) => console.log("MongoDB Connection Error: ", err));
+
+// ==========================
+// ROUTES
+// ==========================
+app.use('/api/auth', require('./routes/authRoutes'));
 
 // Test Route
 app.get('/', (req, res) => {
