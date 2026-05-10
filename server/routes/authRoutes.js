@@ -1,108 +1,101 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const { OAuth2Client } = require('google-auth-library');
 const User = require('../models/User');
+const { verifyAdmin } = require('../middleware/auth');
 
 const router = express.Router();
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
-// ==========================
-// 1. STANDARD PUBLIC REGISTRATION (No Admins Allowed!)
-// ==========================
+// 1. PUBLIC REGISTER (FORCES "CUSTOMER" ROLE)
 router.post('/register', async (req, res) => {
   try {
-    const { name, email, password, role, shopName, location } = req.body;
-
+    const { name, email, password } = req.body;
     let user = await User.findOne({ email });
     if (user) return res.status(400).json({ message: 'User already exists' });
-
-    // SECURITY CHECK: Strictly forbid 'admin' role from this route
-    const allowedRoles = ['customer', 'retailer', 'delivery_agent'];
-    const assignedRole = allowedRoles.includes(role) ? role : 'customer';
 
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    user = new User({
-      name,
-      email,
-      password: hashedPassword,
-      role: assignedRole,
-      shopName: assignedRole === 'retailer' ? shopName : undefined,
-      location
-    });
-
+    user = new User({ name, email, password: hashedPassword, role: 'customer' });
     await user.save();
-    res.status(201).json({ message: 'User registered successfully!' });
-
-  } catch (err) {
-    res.status(500).json({ message: 'Server error during registration' });
-  }
+    res.status(201).json({ message: 'Registration successful!' });
+  } catch (err) { res.status(500).json({ message: 'Server error' }); }
 });
 
-// ==========================
-// 2. SECRET ADMIN REGISTRATION
-// ==========================
+// 2. GOOGLE LOGIN/REGISTER (CUSTOMERS ONLY)
+router.post('/google', async (req, res) => {
+  try {
+    const { credential } = req.body;
+    const ticket = await googleClient.verifyIdToken({
+      idToken: credential,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+    const payload = ticket.getPayload();
+    
+    let user = await User.findOne({ email: payload.email });
+    
+    // If no user exists, create a new CUSTOMER account automatically
+    if (!user) {
+      // Create a random password for Google users since they don't use it
+      const salt = await bcrypt.genSalt(10);
+      const randomPassword = await bcrypt.hash(Math.random().toString(36).slice(-8), salt);
+      user = new User({
+        name: payload.name,
+        email: payload.email,
+        password: randomPassword,
+        role: 'customer'
+      });
+      await user.save();
+    }
+
+    const token = jwt.sign({ user: { id: user._id, role: user.role } }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    res.json({ token, user: { id: user._id, name: user.name, role: user.role } });
+  } catch (err) { res.status(500).json({ message: 'Google Auth Failed' }); }
+});
+
+// 3. ADMIN ONLY: REGISTER STAFF (RETAILERS/AGENTS)
+router.post('/admin-create-staff', verifyAdmin, async (req, res) => {
+  try {
+    const { name, email, password, role, shopName } = req.body;
+    let user = await User.findOne({ email });
+    if (user) return res.status(400).json({ message: 'Email already in use' });
+
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    user = new User({ name, email, password: hashedPassword, role, shopName });
+    await user.save();
+    res.status(201).json({ message: `${role} created successfully!` });
+  } catch (err) { res.status(500).json({ message: 'Server error creating staff' }); }
+});
+
+// 4. SECRET ADMIN REGISTRATION & UNIVERSAL LOGIN (Keep from previous step)
 router.post('/register-admin', async (req, res) => {
   try {
     const { name, email, password, adminSecret } = req.body;
-
-    // SECURITY CHECK: Must provide the exact secret passcode
-    if (adminSecret !== process.env.ADMIN_SECRET) {
-      return res.status(403).json({ message: 'Access Denied: Invalid Admin Secret' });
-    }
-
+    if (adminSecret !== process.env.ADMIN_SECRET) return res.status(403).json({ message: 'Access Denied' });
     let user = await User.findOne({ email });
-    if (user) return res.status(400).json({ message: 'User already exists' });
-
+    if (user) return res.status(400).json({ message: 'User exists' });
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
-
-    // Force role to admin
-    user = new User({
-      name,
-      email,
-      password: hashedPassword,
-      role: 'admin'
-    });
-
+    user = new User({ name, email, password: hashedPassword, role: 'admin' });
     await user.save();
-    res.status(201).json({ message: 'Admin account created securely!' });
-
-  } catch (err) {
-    res.status(500).json({ message: 'Server error during admin registration' });
-  }
+    res.status(201).json({ message: 'Admin created!' });
+  } catch (err) { res.status(500).json({ message: 'Server error' }); }
 });
 
-// ==========================
-// 3. UNIVERSAL LOGIN
-// ==========================
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
-
     const user = await User.findOne({ email });
     if (!user) return res.status(400).json({ message: 'Invalid credentials' });
-
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ message: 'Invalid credentials' });
-
-    const payload = { user: { id: user._id, role: user.role } };
-
-    jwt.sign(
-      payload,
-      process.env.JWT_SECRET,
-      { expiresIn: '7d' },
-      (err, token) => {
-        if (err) throw err;
-        res.json({
-          token,
-          user: { id: user._id, name: user.name, email: user.email, role: user.role }
-        });
-      }
-    );
-  } catch (err) {
-    res.status(500).json({ message: 'Server error during login' });
-  }
+    const token = jwt.sign({ user: { id: user._id, role: user.role } }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    res.json({ token, user: { id: user._id, name: user.name, role: user.role } });
+  } catch (err) { res.status(500).json({ message: 'Server error' }); }
 });
 
 module.exports = router;
