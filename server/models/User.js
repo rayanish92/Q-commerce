@@ -9,18 +9,15 @@ const UserSchema = new mongoose.Schema({
     enum: ['admin', 'retailer', 'customer', 'delivery_agent'],
     default: 'customer'
   },
-  // GPS Location for the 10km radius searches
   location: {
     type: { type: String, default: 'Point' },
-    coordinates: { type: [Number], default: [0, 0] } // [longitude, latitude]
+    coordinates: { type: [Number], default: [0, 0] }
   },
-  // Specific to retailers
   shopName: { type: String, default: '' },
-  // Specific to delivery agents
+  retailerCategory: { type: String, default: '' }, // NEW: E.g., Groceries, Pharmacy, Electronics
   isAvailable: { type: Boolean, default: true }
 }, { timestamps: true });
 
-// This index is critical for MongoDB to do geographic (map) calculations
 UserSchema.index({ location: "2dsphere" });
 
 module.exports = mongoose.model('User', UserSchema);
