@@ -6,91 +6,101 @@ const User = require('../models/User');
 const router = express.Router();
 
 // ==========================
-// 1. REGISTER A NEW USER
+// 1. STANDARD PUBLIC REGISTRATION (No Admins Allowed!)
 // ==========================
 router.post('/register', async (req, res) => {
   try {
     const { name, email, password, role, shopName, location } = req.body;
 
-    // Check if user already exists
     let user = await User.findOne({ email });
-    if (user) {
-      return res.status(400).json({ message: 'User already exists' });
-    }
+    if (user) return res.status(400).json({ message: 'User already exists' });
 
-    // Encrypt the password
+    // SECURITY CHECK: Strictly forbid 'admin' role from this route
+    const allowedRoles = ['customer', 'retailer', 'delivery_agent'];
+    const assignedRole = allowedRoles.includes(role) ? role : 'customer';
+
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    // Create the new user
     user = new User({
       name,
       email,
       password: hashedPassword,
-      role: role || 'customer', // Default to customer if not provided
-      shopName: role === 'retailer' ? shopName : undefined,
-      location: location // [longitude, latitude]
+      role: assignedRole,
+      shopName: assignedRole === 'retailer' ? shopName : undefined,
+      location
     });
 
     await user.save();
     res.status(201).json({ message: 'User registered successfully!' });
 
   } catch (err) {
-    console.error(err.message);
     res.status(500).json({ message: 'Server error during registration' });
   }
 });
 
 // ==========================
-// 2. LOGIN USER
+// 2. SECRET ADMIN REGISTRATION
+// ==========================
+router.post('/register-admin', async (req, res) => {
+  try {
+    const { name, email, password, adminSecret } = req.body;
+
+    // SECURITY CHECK: Must provide the exact secret passcode
+    if (adminSecret !== process.env.ADMIN_SECRET) {
+      return res.status(403).json({ message: 'Access Denied: Invalid Admin Secret' });
+    }
+
+    let user = await User.findOne({ email });
+    if (user) return res.status(400).json({ message: 'User already exists' });
+
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    // Force role to admin
+    user = new User({
+      name,
+      email,
+      password: hashedPassword,
+      role: 'admin'
+    });
+
+    await user.save();
+    res.status(201).json({ message: 'Admin account created securely!' });
+
+  } catch (err) {
+    res.status(500).json({ message: 'Server error during admin registration' });
+  }
+});
+
+// ==========================
+// 3. UNIVERSAL LOGIN
 // ==========================
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Check if user exists
     const user = await User.findOne({ email });
-    if (!user) {
-      return res.status(400).json({ message: 'Invalid credentials' });
-    }
+    if (!user) return res.status(400).json({ message: 'Invalid credentials' });
 
-    // Check if password matches
     const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.status(400).json({ message: 'Invalid credentials' });
-    }
+    if (!isMatch) return res.status(400).json({ message: 'Invalid credentials' });
 
-    // Create the JWT Token
-    const payload = {
-      user: {
-        id: user._id,
-        role: user.role
-      }
-    };
+    const payload = { user: { id: user._id, role: user.role } };
 
-    // Token expires in 7 days (7d)
     jwt.sign(
       payload,
       process.env.JWT_SECRET,
       { expiresIn: '7d' },
       (err, token) => {
         if (err) throw err;
-        // Send the token and user details (hiding the password) back to the frontend
         res.json({
           token,
-          user: {
-            id: user._id,
-            name: user.name,
-            email: user.email,
-            role: user.role,
-            shopName: user.shopName
-          }
+          user: { id: user._id, name: user.name, email: user.email, role: user.role }
         });
       }
     );
-
   } catch (err) {
-    console.error(err.message);
     res.status(500).json({ message: 'Server error during login' });
   }
 });
