@@ -38,10 +38,10 @@ router.post('/google', async (req, res) => {
   } catch (err) { res.status(500).json({ message: 'Google Auth Failed' }); }
 });
 
-// ADMIN CREATING STAFF - NOW INCLUDES LATITUDE & LONGITUDE
+// UPDATED: Now saves contactNumber
 router.post('/admin-create-staff', verifyAdmin, async (req, res) => {
   try {
-    const { name, email, password, role, shopName, retailerCategory, lat, lng } = req.body;
+    const { name, email, password, role, shopName, retailerCategory, lat, lng, contactNumber } = req.body;
     let user = await User.findOne({ email });
     if (user) return res.status(400).json({ message: 'Email already in use' });
     
@@ -49,12 +49,11 @@ router.post('/admin-create-staff', verifyAdmin, async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, salt);
     
     const newUserObj = { 
-      name, email, password: hashedPassword, role, 
+      name, email, password: hashedPassword, role, contactNumber,
       shopName: role === 'retailer' ? shopName : undefined,
       retailerCategory: role === 'retailer' ? retailerCategory : undefined
     };
 
-    // Add GPS location if provided
     if (lat && lng) {
       newUserObj.location = { type: 'Point', coordinates: [parseFloat(lng), parseFloat(lat)] };
     }
@@ -87,6 +86,7 @@ router.post('/login', async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ message: 'Invalid credentials' });
     const token = jwt.sign({ user: { id: user._id, role: user.role } }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    // Sends shopName and name for greeting
     res.json({ token, user: { id: user._id, name: user.name, role: user.role, shopName: user.shopName } });
   } catch (err) { res.status(500).json({ message: 'Server error' }); }
 });
