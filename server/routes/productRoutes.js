@@ -12,7 +12,7 @@ router.post('/add', verifyRetailerOrAdmin, async (req, res) => {
   try {
     const newProduct = new Product({
       ...req.body,
-      retailerId: req.user.id // Taken securely from the token
+      retailerId: req.user.id
     });
     const savedProduct = await newProduct.save();
     res.status(201).json(savedProduct);
@@ -22,7 +22,19 @@ router.post('/add', verifyRetailerOrAdmin, async (req, res) => {
 });
 
 // ==========================================
-// 2. UPDATE PRODUCT QUANTITY/INFO
+// 2. RETAILER VIEW: GET MY PRODUCTS
+// ==========================================
+router.get('/me', verifyRetailerOrAdmin, async (req, res) => {
+  try {
+    const myProducts = await Product.find({ retailerId: req.user.id }).sort({ createdAt: -1 });
+    res.status(200).json(myProducts);
+  } catch (err) {
+    res.status(500).json({ message: 'Error fetching your products', error: err.message });
+  }
+});
+
+// ==========================================
+// 3. UPDATE PRODUCT QUANTITY/INFO
 // ==========================================
 router.put('/update/:id', verifyRetailerOrAdmin, async (req, res) => {
   try {
@@ -38,7 +50,7 @@ router.put('/update/:id', verifyRetailerOrAdmin, async (req, res) => {
 });
 
 // ==========================================
-// 3. DELETE A PRODUCT
+// 4. DELETE A PRODUCT
 // ==========================================
 router.delete('/delete/:id', verifyRetailerOrAdmin, async (req, res) => {
   try {
@@ -50,17 +62,16 @@ router.delete('/delete/:id', verifyRetailerOrAdmin, async (req, res) => {
 });
 
 // ==========================================
-// 4. CUSTOMER VIEW: GET NEARBY PRODUCTS (10km)
+// 5. CUSTOMER VIEW: GET NEARBY PRODUCTS (10km)
 // ==========================================
 router.get('/nearby', verifyToken, async (req, res) => {
   try {
-    const { lng, lat } = req.query; // Expecting longitude and latitude from frontend
+    const { lng, lat } = req.query;
 
     if (!lng || !lat) {
       return res.status(400).json({ message: "Please provide longitude and latitude" });
     }
 
-    // Step A: Find all retailers within a 10km (10000 meters) radius
     const nearbyRetailers = await User.find({
       role: 'retailer',
       location: {
@@ -71,15 +82,13 @@ router.get('/nearby', verifyToken, async (req, res) => {
       }
     });
 
-    // Step B: Extract their IDs
     const retailerIds = nearbyRetailers.map(retailer => retailer._id);
 
-    // Step C: Find all available products belonging to those retailers
     const nearbyProducts = await Product.find({
       retailerId: { $in: retailerIds },
       isAvailable: true,
-      quantity: { $gt: 0 } // Only show items actually in stock!
-    }).populate('retailerId', 'shopName'); // Attach the shop name securely
+      quantity: { $gt: 0 }
+    }).populate('retailerId', 'shopName');
 
     res.status(200).json(nearbyProducts);
   } catch (err) {
