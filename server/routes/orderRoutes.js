@@ -1,10 +1,10 @@
 const express = require('express');
 const Order = require('../models/Order');
-const { verifyRetailerOrAdmin } = require('../middleware/auth');
+const { verifyRetailerOrAdmin, verifyToken } = require('../middleware/auth');
 
 const router = express.Router();
 
-// Fetch orders for a specific retailer with date filters
+// Retailer fetches their orders
 router.get('/retailer-orders', verifyRetailerOrAdmin, async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
@@ -19,18 +19,49 @@ router.get('/retailer-orders', verifyRetailerOrAdmin, async (req, res) => {
     
     const orders = await Order.find(query).sort({ createdAt: -1 });
     res.status(200).json(orders);
-  } catch (err) {
-    res.status(500).json({ message: 'Error fetching orders' });
+  } catch (err) { res.status(500).json({ message: 'Error fetching orders' }); }
+});
+
+// CUSTOMER PLACES AN ORDER
+router.post('/create', verifyToken, async (req, res) => {
+  try {
+    const { retailerId, items, totalAmount, paymentMethod, deliveryAddress } = req.body;
+    
+    const newOrder = new Order({
+      orderId: `ORD-${Date.now().toString().slice(-6)}`,
+      customerId: req.user.id,
+      retailerId,
+      items,
+      totalAmount,
+      paymentMethod,
+      deliveryAddress
+    });
+    
+    await newOrder.save();
+    res.status(201).json(newOrder);
+  } catch (err) { 
+    res.status(500).json({ message: 'Failed to place order' }); 
   }
 });
 
-// Dummy route to generate a test order
+// CUSTOMER FETCHES THEIR PAST ORDERS
+router.get('/my-orders', verifyToken, async (req, res) => {
+  try {
+    const orders = await Order.find({ customerId: req.user.id }).sort({ createdAt: -1 });
+    res.status(200).json(orders);
+  } catch (err) { res.status(500).json({ message: 'Error fetching orders' }); }
+});
+
 router.post('/generate-dummy', verifyRetailerOrAdmin, async (req, res) => {
   try {
     const newOrder = new Order({
       orderId: `ORD-${Math.floor(Math.random() * 1000000)}`,
+      customerId: req.user.id, // using self as dummy customer
       retailerId: req.user.id,
-      totalAmount: Math.floor(Math.random() * 500) + 50
+      items: [{ name: 'Dummy Item', quantity: 1, price: 100 }],
+      totalAmount: Math.floor(Math.random() * 500) + 50,
+      paymentMethod: 'COD',
+      deliveryAddress: 'Test Location'
     });
     await newOrder.save();
     res.status(201).json(newOrder);
