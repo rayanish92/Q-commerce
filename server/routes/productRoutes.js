@@ -5,14 +5,13 @@ const { verifyToken, verifyRetailerOrAdmin } = require('../middleware/auth');
 
 const router = express.Router();
 
-// ==========================================
-// 1. ADD A NEW PRODUCT (Retailer/Admin only)
-// ==========================================
+// 1. ADD A PRODUCT (Defaults to Pending)
 router.post('/add', verifyRetailerOrAdmin, async (req, res) => {
   try {
     const newProduct = new Product({
       ...req.body,
-      retailerId: req.user.id
+      retailerId: req.user.id,
+      status: 'Pending' // Requires admin approval
     });
     const savedProduct = await newProduct.save();
     res.status(201).json(savedProduct);
@@ -21,56 +20,45 @@ router.post('/add', verifyRetailerOrAdmin, async (req, res) => {
   }
 });
 
-// ==========================================
-// 2. RETAILER VIEW: GET MY PRODUCTS
-// ==========================================
+// 2. RETAILER VIEW: GET MY PRODUCTS (Shows all statuses)
 router.get('/me', verifyRetailerOrAdmin, async (req, res) => {
   try {
     const myProducts = await Product.find({ retailerId: req.user.id }).sort({ createdAt: -1 });
     res.status(200).json(myProducts);
   } catch (err) {
-    res.status(500).json({ message: 'Error fetching your products', error: err.message });
+    res.status(500).json({ message: 'Error fetching products' });
   }
 });
 
-// ==========================================
-// 3. UPDATE PRODUCT QUANTITY/INFO
-// ==========================================
+// 3. UPDATE QUANTITY
 router.put('/update/:id', verifyRetailerOrAdmin, async (req, res) => {
   try {
     const updatedProduct = await Product.findByIdAndUpdate(
-      req.params.id, 
-      { $set: req.body }, 
-      { new: true }
+      req.params.id, { $set: { quantity: req.body.quantity } }, { new: true }
     );
     res.status(200).json(updatedProduct);
   } catch (err) {
-    res.status(500).json({ message: 'Error updating product', error: err.message });
+    res.status(500).json({ message: 'Error updating quantity' });
   }
 });
 
-// ==========================================
-// 4. DELETE A PRODUCT
-// ==========================================
+// 4. REQUEST DELETION (Changes status to Pending Deletion)
 router.delete('/delete/:id', verifyRetailerOrAdmin, async (req, res) => {
   try {
-    await Product.findByIdAndDelete(req.params.id);
-    res.status(200).json({ message: 'Product has been deleted' });
+    const updated = await Product.findByIdAndUpdate(
+      req.params.id, { status: 'Pending Deletion' }, { new: true }
+    );
+    res.status(200).json({ message: 'Sent to Admin for deletion approval', product: updated });
   } catch (err) {
-    res.status(500).json({ message: 'Error deleting product', error: err.message });
+    res.status(500).json({ message: 'Error requesting deletion' });
   }
 });
 
-// ==========================================
-// 5. CUSTOMER VIEW: GET NEARBY PRODUCTS (10km)
-// ==========================================
+// 5. CUSTOMER VIEW: GET NEARBY APPROVED PRODUCTS
 router.get('/nearby', verifyToken, async (req, res) => {
   try {
-    const { lng, lat } = req.query;
-
-    if (!lng || !lat) {
-      return res.status(400).json({ message: "Please provide longitude and latitude" });
-    }
+    const { lng, lat, category } = req.query;
+    if (!lng || !lat) return res.status(400).json({ message: "Location required" });
 
     const nearbyRetailers = await User.find({
       role: 'retailer',
@@ -82,17 +70,24 @@ router.get('/nearby', verifyToken, async (req, res) => {
       }
     });
 
-    const retailerIds = nearbyRetailers.map(retailer => retailer._id);
+    const retailerIds = nearbyRetailers.map(r => r._id);
 
-    const nearbyProducts = await Product.find({
+    // Build the query: Must belong to nearby retailer, have stock, and be APPROVED
+    const query = {
       retailerId: { $in: retailerIds },
-      isAvailable: true,
+      status: 'Approved',
       quantity: { $gt: 0 }
-    }).populate('retailerId', 'shopName');
+    };
+    
+    // Add category filter if the customer selected one
+    if (category && category !== 'All') {
+      query.category = category;
+    }
 
+    const nearbyProducts = await Product.find(query).populate('retailerId', 'shopName');
     res.status(200).json(nearbyProducts);
   } catch (err) {
-    res.status(500).json({ message: 'Error fetching nearby products', error: err.message });
+    res.status(500).json({ message: 'Error fetching products' });
   }
 });
 
