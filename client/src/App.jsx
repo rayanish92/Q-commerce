@@ -1,9 +1,9 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { GoogleOAuthProvider } from '@react-oauth/google';
 
-// Import our pages
 import Auth from './pages/Auth';
-import AdminAuth from './pages/AdminAuth'; // The new hidden page
+import AdminAuth from './pages/AdminAuth';
 import CustomerApp from './pages/CustomerApp';
 import RetailerApp from './pages/RetailerApp';
 import AgentApp from './pages/AgentApp';
@@ -16,21 +16,21 @@ const ProtectedRoute = ({ children }) => {
 };
 
 export default function App() {
+  // Pulls the Client ID securely from Render
+  const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || 'dummy-id';
+
   return (
-    <BrowserRouter>
-      <Routes>
-        {/* The main public login screen */}
-        <Route path="/" element={<Auth />} />
-        
-        {/* THE SECRET ADMIN LOGIN URL */}
-        <Route path="/secret-admin-login" element={<AdminAuth />} />
-        
-        {/* The 4 separate apps */}
-        <Route path="/customer" element={ <ProtectedRoute><CustomerApp /></ProtectedRoute> } />
-        <Route path="/retailer" element={ <ProtectedRoute><RetailerApp /></ProtectedRoute> } />
-        <Route path="/agent" element={ <ProtectedRoute><AgentApp /></ProtectedRoute> } />
-        <Route path="/admin" element={ <ProtectedRoute><AdminApp /></ProtectedRoute> } />
-      </Routes>
-    </BrowserRouter>
+    <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<Auth />} />
+          <Route path="/secret-admin-login" element={<AdminAuth />} />
+          <Route path="/customer" element={ <ProtectedRoute><CustomerApp /></ProtectedRoute> } />
+          <Route path="/retailer" element={ <ProtectedRoute><RetailerApp /></ProtectedRoute> } />
+          <Route path="/agent" element={ <ProtectedRoute><AgentApp /></ProtectedRoute> } />
+          <Route path="/admin" element={ <ProtectedRoute><AdminApp /></ProtectedRoute> } />
+        </Routes>
+      </BrowserRouter>
+    </GoogleOAuthProvider>
   );
 }
