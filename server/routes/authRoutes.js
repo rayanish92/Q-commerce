@@ -8,6 +8,15 @@ const { verifyAdmin } = require('../middleware/auth');
 const router = express.Router();
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
+// Helper to generate the fixed JWT
+const generateToken = (user) => {
+  return jwt.sign(
+    { user: { id: user._id, role: user.role, name: user.name, shopName: user.shopName } },
+    process.env.JWT_SECRET,
+    { expiresIn: '7d' }
+  );
+};
+
 router.post('/register', async (req, res) => {
   try {
     const { name, email, password } = req.body;
@@ -33,12 +42,11 @@ router.post('/google', async (req, res) => {
       user = new User({ name: payload.name, email: payload.email, password: randomPassword, role: 'customer' });
       await user.save();
     }
-    const token = jwt.sign({ user: { id: user._id, role: user.role } }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    const token = generateToken(user);
     res.json({ token, user: { id: user._id, name: user.name, role: user.role } });
   } catch (err) { res.status(500).json({ message: 'Google Auth Failed' }); }
 });
 
-// UPDATED: Now saves contactNumber
 router.post('/admin-create-staff', verifyAdmin, async (req, res) => {
   try {
     const { name, email, password, role, shopName, retailerCategory, lat, lng, contactNumber } = req.body;
@@ -54,9 +62,7 @@ router.post('/admin-create-staff', verifyAdmin, async (req, res) => {
       retailerCategory: role === 'retailer' ? retailerCategory : undefined
     };
 
-    if (lat && lng) {
-      newUserObj.location = { type: 'Point', coordinates: [parseFloat(lng), parseFloat(lat)] };
-    }
+    if (lat && lng) newUserObj.location = { type: 'Point', coordinates: [parseFloat(lng), parseFloat(lat)] };
 
     user = new User(newUserObj);
     await user.save();
@@ -85,8 +91,7 @@ router.post('/login', async (req, res) => {
     if (!user) return res.status(400).json({ message: 'Invalid credentials' });
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ message: 'Invalid credentials' });
-    const token = jwt.sign({ user: { id: user._id, role: user.role } }, process.env.JWT_SECRET, { expiresIn: '7d' });
-    // Sends shopName and name for greeting
+    const token = generateToken(user);
     res.json({ token, user: { id: user._id, name: user.name, role: user.role, shopName: user.shopName } });
   } catch (err) { res.status(500).json({ message: 'Server error' }); }
 });
