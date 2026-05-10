@@ -85,7 +85,6 @@ export default function Auth() {
                 <option value="customer">Customer</option>
                 <option value="retailer">Retailer</option>
                 <option value="delivery_agent">Delivery Agent</option>
-                <option value="admin">Admin</option>
               </select>
             </div>
           )}
