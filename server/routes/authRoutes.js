@@ -24,18 +24,13 @@ router.post('/register', async (req, res) => {
 router.post('/google', async (req, res) => {
   try {
     const { credential } = req.body;
-    const ticket = await googleClient.verifyIdToken({
-      idToken: credential,
-      audience: process.env.GOOGLE_CLIENT_ID,
-    });
+    const ticket = await googleClient.verifyIdToken({ idToken: credential, audience: process.env.GOOGLE_CLIENT_ID });
     const payload = ticket.getPayload();
     let user = await User.findOne({ email: payload.email });
     if (!user) {
       const salt = await bcrypt.genSalt(10);
       const randomPassword = await bcrypt.hash(Math.random().toString(36).slice(-8), salt);
-      user = new User({
-        name: payload.name, email: payload.email, password: randomPassword, role: 'customer'
-      });
+      user = new User({ name: payload.name, email: payload.email, password: randomPassword, role: 'customer' });
       await user.save();
     }
     const token = jwt.sign({ user: { id: user._id, role: user.role } }, process.env.JWT_SECRET, { expiresIn: '7d' });
@@ -43,19 +38,28 @@ router.post('/google', async (req, res) => {
   } catch (err) { res.status(500).json({ message: 'Google Auth Failed' }); }
 });
 
-// UPDATED TO INCLUDE RETAILER CATEGORY
+// ADMIN CREATING STAFF - NOW INCLUDES LATITUDE & LONGITUDE
 router.post('/admin-create-staff', verifyAdmin, async (req, res) => {
   try {
-    const { name, email, password, role, shopName, retailerCategory } = req.body;
+    const { name, email, password, role, shopName, retailerCategory, lat, lng } = req.body;
     let user = await User.findOne({ email });
     if (user) return res.status(400).json({ message: 'Email already in use' });
+    
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
-    user = new User({ 
+    
+    const newUserObj = { 
       name, email, password: hashedPassword, role, 
       shopName: role === 'retailer' ? shopName : undefined,
       retailerCategory: role === 'retailer' ? retailerCategory : undefined
-    });
+    };
+
+    // Add GPS location if provided
+    if (lat && lng) {
+      newUserObj.location = { type: 'Point', coordinates: [parseFloat(lng), parseFloat(lat)] };
+    }
+
+    user = new User(newUserObj);
     await user.save();
     res.status(201).json({ message: `${role} created successfully!` });
   } catch (err) { res.status(500).json({ message: 'Server error creating staff' }); }
@@ -83,7 +87,7 @@ router.post('/login', async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ message: 'Invalid credentials' });
     const token = jwt.sign({ user: { id: user._id, role: user.role } }, process.env.JWT_SECRET, { expiresIn: '7d' });
-    res.json({ token, user: { id: user._id, name: user.name, role: user.role } });
+    res.json({ token, user: { id: user._id, name: user.name, role: user.role, shopName: user.shopName } });
   } catch (err) { res.status(500).json({ message: 'Server error' }); }
 });
 
