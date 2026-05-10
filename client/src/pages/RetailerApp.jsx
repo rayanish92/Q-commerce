@@ -18,8 +18,6 @@ export default function RetailerApp() {
   
   // Bank Details State
   const [bankDetails, setBankDetails] = useState({ accountName: '', accountNumber: '', ifscCode: '' });
-  
-  // Summary Filter State
   const [dateFilter, setDateFilter] = useState({ startDate: '', endDate: '' });
 
   const API_URL = import.meta.env.VITE_API_URL;
@@ -55,7 +53,6 @@ export default function RetailerApp() {
 
   useEffect(() => { if (dateFilter.startDate && dateFilter.endDate) fetchOrders(); }, [dateFilter]);
 
-  // Search Master Catalog Logic
   const handleSearchChange = (e) => {
     const val = e.target.value;
     setSearchTerm(val);
@@ -131,7 +128,8 @@ export default function RetailerApp() {
       await axios.put(`${API_URL}/api/orders/${orderId}/suborder/${subOrderId}`, { action }, getAuth());
       setMessage(`Order ${action}ed successfully.`); 
       fetchOrders();
-      fetchData(); // Refresh inventory if accepted (deducts stock)
+      // THIS FETCH SYNC ENSURES THE REFUNDED QUANTITY INSTANTLY APPEARS IN THE UI
+      fetchData(); 
       setTimeout(() => setMessage(''), 3000);
     } catch (err) { setMessage(`Failed to process order action.`); }
   };
@@ -166,7 +164,7 @@ export default function RetailerApp() {
       <main className="max-w-6xl mx-auto p-4 mt-4 w-full">
         {message && <div className="mb-6 p-4 rounded-lg bg-emerald-100 text-emerald-800 font-bold border border-emerald-200">{message}</div>}
 
-        {/* TAB 1: INVENTORY (Restored!) */}
+        {/* TAB 1: INVENTORY */}
         {activeTab === 'inventory' && (
           <div className="bg-white p-6 rounded-xl shadow-sm border border-emerald-100">
             <h2 className="text-xl font-bold mb-4">Manage Quantity & Prices</h2>
@@ -275,8 +273,8 @@ export default function RetailerApp() {
                      <ul className="space-y-1">
                        {order.subOrder.items.map((i, idx) => (
                          <li key={idx} className="font-bold text-gray-800 flex justify-between">
-                            <span>• {i.cartQty}x {i.name}</span>
-                            <span className="text-gray-500">₹{i.price * i.cartQty}</span>
+                            <span>• {i.cartQty || i.quantity || 1}x {i.name}</span>
+                            <span className="text-gray-500">₹{i.price * (i.cartQty || i.quantity || 1)}</span>
                          </li>
                        ))}
                      </ul>
@@ -331,7 +329,7 @@ export default function RetailerApp() {
                 <div>
                   <p className="text-indigo-800 font-bold uppercase text-sm">Your Fulfillment Revenue</p>
                   <p className="text-4xl font-extrabold text-indigo-600">
-                    ₹{orders.reduce((sum, order) => sum + order.subOrder.items.reduce((itemSum, item) => itemSum + (item.price * item.cartQty), 0), 0)}
+                    ₹{orders.reduce((sum, order) => sum + order.subOrder.items.reduce((itemSum, item) => itemSum + (item.price * (item.cartQty || item.quantity || 1)), 0), 0)}
                   </p>
                 </div>
                 <BarChart2 className="w-12 h-12 text-indigo-200" />
