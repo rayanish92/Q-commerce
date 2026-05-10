@@ -6,7 +6,7 @@ const { verifyRetailerOrAdmin, verifyToken, verifyAdmin } = require('../middlewa
 
 const router = express.Router();
 
-// SMART ROUTING ENGINE (NOW SAFELY RESERVES INVENTORY)
+// SMART ROUTING ENGINE
 const findNearestRetailerForItems = async (items, lng, lat, excludeRetailerIds = []) => {
   const nearbyRetailers = await User.find({ 
     role: 'retailer', 
@@ -18,21 +18,28 @@ const findNearestRetailerForItems = async (items, lng, lat, excludeRetailerIds =
 
   for (let item of items) {
     let allocated = false;
+    
+    // SAFE FALLBACK: Works with both old and new cart systems
+    const requestedQty = Number(item.cartQty || item.quantity || 1);
+
     for (let retailer of nearbyRetailers) {
       const productRecord = await Product.findOne({ 
         retailerId: retailer._id, 
         name: item.name, 
         status: 'Approved', 
-        quantity: { $gte: item.cartQty } 
+        quantity: { $gte: requestedQty } 
       });
 
       if (productRecord) {
         if (!allocations[retailer._id]) allocations[retailer._id] = [];
-        allocations[retailer._id].push(item);
         
-        // CRITICAL FIX 1: DEDUCT STOCK IMMEDIATELY TO PREVENT DOUBLE-SELLING
-        productRecord.quantity -= item.cartQty;
-        await productRecord.save();
+        // Pass the exact deducted amount forward so we know what to refund if rejected
+        allocations[retailer._id].push({ ...item, actualDeducted: requestedQty });
+        
+        // ATOMIC DEDUCTION: Subtracts stock instantly at the database level to prevent double-selling
+        await Product.findByIdAndUpdate(productRecord._id, {
+          $inc: { quantity: -requestedQty }
+        });
         
         allocated = true;
         break; 
@@ -47,8 +54,6 @@ const findNearestRetailerForItems = async (items, lng, lat, excludeRetailerIds =
 router.post('/create', verifyToken, async (req, res) => {
   try {
     const { items, totalAmount, paymentMethod, deliveryAddress, lat, lng } = req.body;
-    
-    // This will now deduct the stock from the assigned retailers automatically
     const { allocations, unallocated } = await findNearestRetailerForItems(items, lng, lat, []);
     
     if (Object.keys(allocations).length === 0) {
@@ -63,9 +68,7 @@ router.post('/create', verifyToken, async (req, res) => {
     const newOrder = new Order({
       orderId: `ORD-${Date.now().toString().slice(-6)}`,
       customerId: req.user.id, 
-      totalAmount, 
-      paymentMethod, 
-      deliveryAddress,
+      totalAmount, paymentMethod, deliveryAddress,
       location: { type: 'Point', coordinates: [lng, lat] },
       subOrders, 
       status: unallocated.length > 0 ? 'Partially Placed' : 'Order Placed'
@@ -78,9 +81,8 @@ router.post('/create', verifyToken, async (req, res) => {
 
 // 2. CUSTOMER FETCHES ORDERS
 router.get('/my-orders', verifyToken, async (req, res) => {
-  try { 
-    res.status(200).json(await Order.find({ customerId: req.user.id }).sort({ createdAt: -1 })); 
-  } catch (err) { res.status(500).json({ message: 'Error fetching orders' }); }
+  try { res.status(200).json(await Order.find({ customerId: req.user.id }).sort({ createdAt: -1 })); } 
+  catch (err) { res.status(500).json({ message: 'Error fetching orders' }); }
 });
 
 // 3. RETAILER FETCHES THEIR SUB-ORDERS
@@ -112,25 +114,22 @@ router.put('/:orderId/suborder/:subOrderId', verifyRetailerOrAdmin, async (req, 
 
     if (action === 'Accept') {
       subOrder.status = 'Accepted';
-      
-      // Check if all subOrders are now accepted/rejected
       const allResolved = order.subOrders.every(s => s.status !== 'Pending');
       if (allResolved) order.status = 'Accepted by Store';
 
     } else if (action === 'Reject') {
       subOrder.status = 'Rejected';
       
-      // CRITICAL FIX 2: RESTORE STOCK TO THE RETAILER WHO REJECTED IT
+      // ATOMIC REFUND: Safely adds the exact quantity back to the retailer's inventory
       for (let item of subOrder.items) {
-        const productRecord = await Product.findOne({ retailerId: req.user.id, name: item.name });
-        if (productRecord) {
-          productRecord.quantity += item.cartQty;
-          await productRecord.save();
-        }
+        const qtyToRestore = Number(item.actualDeducted || item.cartQty || item.quantity || 1);
+        await Product.findOneAndUpdate(
+          { retailerId: req.user.id, name: item.name },
+          { $inc: { quantity: qtyToRestore } }
+        );
       }
 
-      // AUTO-REASSIGNMENT
-      // Find the NEXT nearest retailer and assign it to them
+      // AUTO-REASSIGNMENT: Look for the next nearest retailer
       const [lng, lat] = order.location.coordinates;
       const { allocations } = await findNearestRetailerForItems(subOrder.items, lng, lat, [req.user.id]);
       
@@ -138,8 +137,6 @@ router.put('/:orderId/suborder/:subOrderId', verifyRetailerOrAdmin, async (req, 
         for (const [newRetailerId, newItems] of Object.entries(allocations)) {
           order.subOrders.push({ retailerId: newRetailerId, items: newItems, status: 'Pending' });
         }
-      } else {
-         // Optionally handle if NO other retailer has the stock (e.g. initiate partial refund)
       }
     }
     
