@@ -3,22 +3,21 @@ import axios from 'axios';
 import { Shield, Users, Database, CheckCircle, Plus, Trash2 } from 'lucide-react';
 
 export default function AdminApp() {
-  const [activeTab, setActiveTab] = useState('staff'); // staff, catalog, approvals, users
+  const [activeTab, setActiveTab] = useState('staff');
   const [message, setMessage] = useState('');
   
-  // States for Data
   const [users, setUsers] = useState([]);
   const [masterProducts, setMasterProducts] = useState([]);
   const [approvals, setApprovals] = useState([]);
   
-  // Form States
   const [staffForm, setStaffForm] = useState({ name: '', email: '', password: '', role: 'retailer', shopName: '', retailerCategory: 'Groceries' });
   const [masterForm, setMasterForm] = useState({ name: '', description: '', category: 'Groceries', imageUrl: '' });
 
   const API_URL = import.meta.env.VITE_API_URL;
-  const axiosConfig = { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } };
+  
+  // This dynamically grabs the freshest token to prevent cross-tab testing errors
+  const getAuth = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
 
-  // Fetch data based on active tab
   useEffect(() => {
     setMessage('');
     if (activeTab === 'users') fetchUsers();
@@ -27,20 +26,22 @@ export default function AdminApp() {
   }, [activeTab]);
 
   const fetchUsers = async () => {
-    try { const res = await axios.get(`${API_URL}/api/admin/users`, axiosConfig); setUsers(res.data); } catch (err) { setMessage('Failed to load users'); }
+    try { const res = await axios.get(`${API_URL}/api/admin/users`, getAuth()); setUsers(res.data); } 
+    catch (err) { setMessage(err.response?.data?.message || 'Failed to load users'); }
   };
   const fetchMasterProducts = async () => {
-    try { const res = await axios.get(`${API_URL}/api/admin/master-products`, axiosConfig); setMasterProducts(res.data); } catch (err) { setMessage('Failed to load catalog'); }
+    try { const res = await axios.get(`${API_URL}/api/admin/master-products`, getAuth()); setMasterProducts(res.data); } 
+    catch (err) { setMessage(err.response?.data?.message || 'Failed to load catalog'); }
   };
   const fetchApprovals = async () => {
-    try { const res = await axios.get(`${API_URL}/api/admin/pending-approvals`, axiosConfig); setApprovals(res.data); } catch (err) { setMessage('Failed to load approvals'); }
+    try { const res = await axios.get(`${API_URL}/api/admin/pending-approvals`, getAuth()); setApprovals(res.data); } 
+    catch (err) { setMessage(err.response?.data?.message || 'Failed to load approvals'); }
   };
 
-  // Actions
   const handleCreateStaff = async (e) => {
     e.preventDefault();
     try {
-      const res = await axios.post(`${API_URL}/api/auth/admin-create-staff`, staffForm, axiosConfig);
+      const res = await axios.post(`${API_URL}/api/auth/admin-create-staff`, staffForm, getAuth());
       setMessage(res.data.message);
       setStaffForm({ name: '', email: '', password: '', role: 'retailer', shopName: '', retailerCategory: 'Groceries' });
     } catch (err) { setMessage(err.response?.data?.message || 'Error creating staff'); }
@@ -49,35 +50,34 @@ export default function AdminApp() {
   const handleCreateMaster = async (e) => {
     e.preventDefault();
     try {
-      await axios.post(`${API_URL}/api/admin/master-products`, masterForm, axiosConfig);
+      await axios.post(`${API_URL}/api/admin/master-products`, masterForm, getAuth());
       setMessage('Master product added!');
       setMasterForm({ name: '', description: '', category: 'Groceries', imageUrl: '' });
       fetchMasterProducts();
-    } catch (err) { setMessage('Error adding master product'); }
+    } catch (err) { setMessage(err.response?.data?.message || 'Error adding master product'); }
   };
 
   const handleApproval = async (id, action) => {
     try {
-      await axios.put(`${API_URL}/api/admin/approve-product/${id}`, { action }, axiosConfig);
+      await axios.put(`${API_URL}/api/admin/approve-product/${id}`, { action }, getAuth());
       setMessage(`Product ${action}d successfully`);
       fetchApprovals();
-    } catch (err) { setMessage('Error processing approval'); }
+    } catch (err) { setMessage(err.response?.data?.message || 'Error processing approval'); }
   };
 
   const handleApproveDeletion = async (id) => {
     try {
-      await axios.delete(`${API_URL}/api/admin/approve-deletion/${id}`, axiosConfig);
+      await axios.delete(`${API_URL}/api/admin/approve-deletion/${id}`, getAuth());
       setMessage('Deletion approved and removed from platform');
       fetchApprovals();
-    } catch (err) { setMessage('Error approving deletion'); }
+    } catch (err) { setMessage(err.response?.data?.message || 'Error approving deletion'); }
   };
 
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col md:flex-row">
-      {/* Sidebar Navigation */}
       <div className="w-full md:w-64 bg-gray-900 text-white min-h-full p-4 shadow-xl">
         <div className="flex items-center gap-2 mb-8 mt-4 px-2">
-          <Shield className="w-8 h-8 text-red-500" />
+          <Shield className="w-8 h-8 text-red-500"/>
           <h1 className="text-xl font-extrabold tracking-widest uppercase">Admin Core</h1>
         </div>
         <nav className="space-y-2">
@@ -89,11 +89,10 @@ export default function AdminApp() {
         <button onClick={() => { localStorage.clear(); window.location.href='/'; }} className="w-full mt-12 bg-red-600 py-2 rounded font-bold hover:bg-red-700">Logout</button>
       </div>
 
-      {/* Main Content Area */}
       <div className="flex-1 p-8">
+        
         {message && <div className="mb-6 p-4 rounded-lg bg-indigo-100 text-indigo-800 border border-indigo-200 font-bold shadow-sm animate-pulse">{message}</div>}
 
-        {/* TAB 1: CREATE STAFF */}
         {activeTab === 'staff' && (
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 max-w-2xl">
             <h2 className="text-2xl font-bold mb-6 text-gray-800 border-b pb-2">Generate Credentials</h2>
@@ -126,7 +125,6 @@ export default function AdminApp() {
           </div>
         )}
 
-        {/* TAB 2: MASTER CATALOG */}
         {activeTab === 'catalog' && (
           <div className="space-y-6">
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
@@ -139,7 +137,8 @@ export default function AdminApp() {
                   <option value="Dairy">Dairy</option>
                   <option value="Snacks">Snacks</option>
                 </select>
-                <input type="text" placeholder="Verified Image URL" required value={masterForm.imageUrl} onChange={(e) => setMasterForm({...masterForm, imageUrl: e.target.value})} className="p-3 border rounded-lg outline-none" />
+                
+                <input type="text" placeholder="Image URL (Optional)" value={masterForm.imageUrl} onChange={(e) => setMasterForm({...masterForm, imageUrl: e.target.value})} className="p-3 border rounded-lg outline-none" />
                 <input type="text" placeholder="Description" value={masterForm.description} onChange={(e) => setMasterForm({...masterForm, description: e.target.value})} className="p-3 border rounded-lg outline-none" />
                 <button type="submit" className="md:col-span-2 bg-green-600 text-white font-bold py-3 rounded-lg hover:bg-green-700">Save to Master DB</button>
               </form>
@@ -150,7 +149,11 @@ export default function AdminApp() {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {masterProducts.map(p => (
                   <div key={p._id} className="border p-2 rounded-lg text-center shadow-sm">
-                    <img src={p.imageUrl} alt={p.name} className="h-24 w-full object-contain mb-2 bg-gray-50 rounded" />
+                    {p.imageUrl ? (
+                      <img src={p.imageUrl} alt={p.name} className="h-24 w-full object-contain mb-2 bg-gray-50 rounded" />
+                    ) : (
+                      <div className="h-24 w-full bg-gray-100 flex items-center justify-center text-gray-400 text-xs rounded mb-2">No Image</div>
+                    )}
                     <p className="font-semibold text-sm truncate">{p.name}</p>
                     <p className="text-xs text-gray-500">{p.category}</p>
                   </div>
@@ -160,7 +163,6 @@ export default function AdminApp() {
           </div>
         )}
 
-        {/* TAB 3: APPROVALS */}
         {activeTab === 'approvals' && (
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
             <h2 className="text-2xl font-bold mb-6 text-gray-800">Pending Actions</h2>
@@ -194,7 +196,6 @@ export default function AdminApp() {
           </div>
         )}
 
-        {/* TAB 4: USERS LIST */}
         {activeTab === 'users' && (
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
             <h2 className="text-2xl font-bold mb-6 text-gray-800">Platform Users Directory</h2>
