@@ -188,4 +188,166 @@ export default function CustomerApp() {
                   return (
                     <div key={product._id} className="bg-white rounded-xl shadow-sm border overflow-hidden flex flex-col">
                       <div className="h-32 bg-white p-2 flex items-center justify-center"><img src={product.imageUrl} className="h-full object-contain" alt=""/></div>
-                      <div className="p-3 bg-gray-50 border-t flex-1 flex flex-col justify-
+                      <div className="p-3 bg-gray-50 border-t flex-1 flex flex-col justify-between">
+                        <h3 className="font-bold text-sm text-gray-800 line-clamp-2 h-10 leading-tight">{product.name}</h3>
+                        <div className="flex justify-between items-end mt-2">
+                          <p className="text-lg font-extrabold text-gray-900">₹{product.sellingPrice}</p>
+                          {inCart ? (
+                            <div className="flex items-center gap-2 bg-pink-100 rounded px-2 py-1 border border-pink-200">
+                              <button onClick={() => updateCartQty(product._id, -1)} className="font-bold text-pink-700">-</button><span className="font-bold text-sm text-pink-900">{inCart.cartQty}</span><button onClick={() => updateCartQty(product._id, 1)} className="font-bold text-pink-700">+</button>
+                            </div>
+                          ) : <button onClick={() => addToCart(product)} className="bg-white border border-pink-500 text-pink-600 font-bold px-3 py-1 rounded hover:bg-pink-50 text-sm">ADD</button>}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </>
+        )}
+
+        {activeTab === 'checkout' && (
+          <div className="animate-fade-in">
+            <h2 className="text-2xl font-bold mb-4 flex items-center gap-2"><ShoppingCart className="w-6 h-6"/> Checkout</h2>
+            
+            <div className="bg-white rounded-2xl shadow-sm border p-5 mb-4">
+              <h3 className="font-bold text-gray-500 text-sm uppercase mb-3">Delivery Details</h3>
+              
+              <div className="flex items-start gap-3 bg-indigo-50 border border-indigo-200 p-4 rounded-xl mb-4">
+                <MapPin className="w-6 h-6 text-indigo-600 mt-0.5" />
+                <div>
+                  <span className="font-bold text-[10px] bg-indigo-600 text-white px-2 py-0.5 rounded uppercase tracking-wider">Active Location</span>
+                  <p className="font-bold text-gray-800 mt-1">{locationName}</p>
+                </div>
+              </div>
+
+              {addresses.length > 0 && <h3 className="font-bold text-gray-400 text-xs uppercase tracking-wider mb-2 border-t pt-4">Or choose a Saved Address</h3>}
+              {addresses.map(addr => (
+                <label key={addr._id} className={`flex items-start gap-3 p-3 border rounded-xl cursor-pointer mb-2 transition ${selectedAddress?._id === addr._id ? 'border-indigo-600 bg-indigo-50' : 'hover:bg-gray-50'}`}>
+                  <input type="radio" checked={selectedAddress?._id === addr._id} onChange={() => { setSelectedAddress(addr); setLocationName(addr.address); }} className="mt-1 w-4 h-4 text-indigo-600" />
+                  <div className="flex-1">
+                    <span className="font-bold bg-gray-200 px-2 py-0.5 rounded text-xs text-gray-800">{addr.label}</span>
+                    <p className="text-sm font-semibold text-gray-700 mt-1">{addr.address}</p>
+                  </div>
+                </label>
+              ))}
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-sm border p-5 mb-6">
+              <h3 className="font-bold text-gray-500 text-sm uppercase mb-4">Select Payment Method</h3>
+              <div className="space-y-3">
+                {['UPI', 'Credit/Debit Card', 'Cash on Delivery (COD)'].map(method => (
+                  <label key={method} className={`flex items-center gap-3 p-4 border rounded-xl cursor-pointer ${paymentMethod === method ? 'border-indigo-600 bg-indigo-50' : 'hover:bg-gray-50'}`}>
+                    <input type="radio" name="payment" value={method} checked={paymentMethod === method} onChange={(e) => setPaymentMethod(e.target.value)} className="w-5 h-5 text-indigo-600" />
+                    <span className="font-bold text-gray-800 flex-1">{method}</span>
+                    {method === 'UPI' && <Smartphone className="w-6 h-6 text-gray-400"/>}
+                  </label>
+                ))}
+              </div>
+            </div>
+            <button onClick={handlePlaceOrder} className="w-full bg-indigo-600 text-white font-extrabold py-4 rounded-xl text-lg shadow-lg hover:bg-indigo-700 transition transform hover:scale-[1.02]">Pay ₹{cartTotal} & Place Order</button>
+            <button onClick={() => setActiveTab('cart')} className="w-full mt-3 text-gray-500 font-bold py-2 hover:underline">Back to Cart</button>
+          </div>
+        )}
+
+        {activeTab === 'account' && (
+          <div className="flex flex-col md:flex-row gap-6">
+            <div className="w-full md:w-64 bg-white rounded-2xl shadow-sm border p-4 h-fit">
+              <h2 className="font-bold text-gray-400 uppercase text-xs tracking-wider mb-4 px-2">Account Settings</h2>
+              <nav className="space-y-1">
+                <button onClick={() => setAccountSubTab('profile')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition ${accountSubTab === 'profile' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50'}`}><UserIcon className="w-5 h-5"/> Profile</button>
+                <button onClick={() => setAccountSubTab('addresses')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition ${accountSubTab === 'addresses' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50'}`}><MapPin className="w-5 h-5"/> Addresses</button>
+                <button onClick={() => setAccountSubTab('orders')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition ${accountSubTab === 'orders' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50'}`}><ShoppingBag className="w-5 h-5"/> My Orders</button>
+              </nav>
+              <button onClick={() => { localStorage.clear(); window.location.href='/'; }} className="w-full mt-8 flex items-center justify-center gap-2 text-red-500 font-bold py-3 hover:bg-red-50 rounded-xl transition"><LogOut className="w-5 h-5"/> Sign Out</button>
+            </div>
+
+            <div className="flex-1">
+              {accountSubTab === 'profile' && (
+                <div className="bg-white rounded-2xl shadow-sm border p-6 text-center md:text-left">
+                   <div className="w-24 h-24 bg-indigo-100 rounded-full flex items-center justify-center text-indigo-600 mb-4 mx-auto md:mx-0"><UserIcon className="w-12 h-12"/></div>
+                   <h2 className="text-3xl font-bold text-gray-800">{userName}</h2>
+                   <p className="text-gray-500 mt-2 font-medium">Platform Customer</p>
+                </div>
+              )}
+
+              {accountSubTab === 'addresses' && (
+                <div className="bg-white rounded-2xl shadow-sm border p-6">
+                  <h3 className="font-bold text-gray-800 text-lg mb-4 flex justify-between items-center">Saved Addresses <button onClick={() => setShowAddressForm(!showAddressForm)} className="bg-indigo-100 text-indigo-700 text-sm px-3 py-1 rounded-lg hover:bg-indigo-200">+ Add New</button></h3>
+                  {showAddressForm && (
+                    <form onSubmit={handleAddAddress} className="mb-6 p-4 bg-gray-50 border rounded-xl">
+                      <div className="grid grid-cols-2 gap-4 mb-4">
+                        <select value={newAddress.label} onChange={e=>setNewAddress({...newAddress, label: e.target.value})} className="p-2 border rounded font-bold outline-none"><option value="Home">Home</option><option value="Work">Work</option><option value="Other">Other</option></select>
+                        <input type="text" placeholder="Full Address" required value={newAddress.address} onChange={e=>setNewAddress({...newAddress, address: e.target.value})} className="p-2 border rounded col-span-2 outline-none focus:ring-2 focus:ring-indigo-500" />
+                      </div>
+                      <button type="submit" className="bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-indigo-700">Save Address</button>
+                    </form>
+                  )}
+                  <div className="space-y-3">
+                    {addresses.length === 0 && <p className="text-gray-500 font-bold p-4 text-center border rounded-xl">No addresses saved yet.</p>}
+                    {addresses.map(addr => (
+                      <div key={addr._id} className="border p-4 rounded-xl flex justify-between items-center bg-gray-50">
+                        <div><span className="bg-indigo-100 text-indigo-800 font-bold text-xs px-2 py-0.5 rounded uppercase tracking-wider">{addr.label}</span><p className="text-gray-800 mt-2 font-bold">{addr.address}</p></div>
+                        <button onClick={() => handleDeleteAddress(addr._id)} className="text-red-500 p-2 hover:bg-red-100 rounded transition"><Trash2 className="w-5 h-5"/></button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {accountSubTab === 'orders' && (
+                <div className="space-y-4">
+                  <h3 className="font-bold text-gray-800 text-lg mb-4">Order History</h3>
+                  {myOrders.length === 0 && <p className="text-gray-500 font-bold p-4 text-center border rounded-xl bg-white">You haven't placed any orders yet.</p>}
+                  {myOrders.map(order => (
+                    <div key={order._id} className="bg-white rounded-2xl shadow-sm border p-5 hover:shadow-md transition">
+                      <div className="flex justify-between items-start border-b pb-3 mb-3">
+                        <div><p className="font-mono text-xs font-bold text-gray-400">{order.orderId}</p><p className="text-sm font-bold text-gray-800 mt-1">{new Date(order.createdAt).toLocaleDateString()}</p></div>
+                        <div className="text-right"><span className="bg-green-100 text-green-800 text-[10px] uppercase font-bold px-2 py-1 rounded">{order.status}</span><p className="font-extrabold text-lg mt-1 text-gray-900">₹{order.totalAmount}</p></div>
+                      </div>
+                      <div className="text-sm text-gray-600"><span className="font-bold text-gray-800">Items: </span> {order.subOrders ? order.subOrders.map(s => s.items.map(i => `${i.cartQty || i.quantity || 1}x ${i.name}`).join(', ')).join(' | ') : order.items?.map(i => `${i.cartQty}x ${i.name}`).join(', ')}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'cart' && (
+          <div className="animate-fade-in">
+            <h2 className="text-2xl font-bold mb-4 flex items-center gap-2"><ShoppingCart className="w-6 h-6"/> Your Cart</h2>
+            {cart.length === 0 ? (
+              <div className="text-center py-20 bg-white rounded-2xl shadow-sm border"><ShoppingCart className="w-16 h-16 mx-auto text-gray-300 mb-4"/><p className="text-xl font-bold text-gray-500">Your cart is empty</p></div>
+            ) : (
+              <div className="bg-white rounded-2xl shadow-sm border p-4">
+                {cart.map(item => (
+                  <div key={item._id} className="flex justify-between items-center mb-4 pb-4 border-b">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 bg-gray-100 rounded flex items-center justify-center p-1"><img src={item.imageUrl} className="max-h-full object-contain" alt=""/></div>
+                      <div><h4 className="font-bold text-sm text-gray-800">{item.name}</h4><p className="font-extrabold text-gray-900 text-sm mt-1">₹{item.sellingPrice}</p></div>
+                    </div>
+                    <div className="flex items-center gap-3 bg-gray-100 rounded-lg px-3 py-1">
+                      <button onClick={() => updateCartQty(item._id, -1)} className="font-bold text-lg text-gray-600 hover:text-pink-600">-</button><span className="font-bold text-sm">{item.cartQty}</span><button onClick={() => updateCartQty(item._id, 1)} className="font-bold text-lg text-gray-600 hover:text-pink-600">+</button>
+                    </div>
+                  </div>
+                ))}
+                <div className="mt-6 border-t pt-4">
+                  <div className="flex justify-between text-xl font-extrabold text-gray-900"><span>Grand Total</span><span>₹{cartTotal}</span></div>
+                </div>
+                <button onClick={() => setActiveTab('checkout')} className="w-full mt-6 bg-pink-500 text-white font-extrabold py-4 rounded-xl text-lg shadow-lg hover:bg-pink-600 flex justify-center items-center gap-2 transition transform hover:scale-[1.02]">Proceed to Checkout <ChevronRight className="w-5 h-5"/></button>
+              </div>
+            )}
+          </div>
+        )}
+      </main>
+
+      <nav className="fixed bottom-0 w-full bg-white border-t flex justify-around items-center pb-safe pt-2 px-2 z-30 h-16 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+        <button onClick={() => setActiveTab('home')} className={`flex flex-col items-center flex-1 ${activeTab==='home' ? 'text-indigo-600' : 'text-gray-400 hover:text-indigo-400 transition'}`}><Home className="w-6 h-6 mb-1"/><span className="text-[10px] font-bold">Home</span></button>
+        <button onClick={() => setActiveTab('cart')} className={`flex flex-col items-center flex-1 relative ${activeTab==='cart' || activeTab==='checkout' ? 'text-pink-600' : 'text-gray-400 hover:text-pink-400 transition'}`}><div className="relative"><ShoppingCart className="w-6 h-6 mb-1"/>{cart.length > 0 && <span className="absolute -top-1 -right-2 bg-pink-500 text-white text-[10px] font-bold w-4 h-4 flex items-center justify-center rounded-full shadow-sm">{cart.reduce((s, i)=>s+i.cartQty, 0)}</span>}</div><span className="text-[10px] font-bold">Cart</span></button>
+        <button onClick={() => setActiveTab('account')} className={`flex flex-col items-center flex-1 ${activeTab==='account' ? 'text-indigo-600' : 'text-gray-400 hover:text-indigo-400 transition'}`}><UserIcon className="w-6 h-6 mb-1"/><span className="text-[10px] font-bold">Account</span></button>
+      </nav>
+    </div>
+  );
+}
