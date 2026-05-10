@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { ShoppingBag, Search, MapPin, LogOut, Loader2, Globe, Home, ShoppingCart, User as UserIcon, Trash2, ChevronRight, Settings, Smartphone, Truck, Package } from 'lucide-react';
+import { ShoppingBag, Search, MapPin, LogOut, Loader2, Globe, Home, ShoppingCart, User as UserIcon, Trash2, ChevronRight, Settings, Smartphone, Truck, Package, Crosshair } from 'lucide-react';
 
 export default function CustomerApp() {
   const [activeTab, setActiveTab] = useState('home'); 
@@ -14,9 +14,12 @@ export default function CustomerApp() {
   const [testMode, setTestMode] = useState(false);
   const [userName, setUserName] = useState('');
   
+  // Checkout & Location State
   const [selectedAddress, setSelectedAddress] = useState(null);
-  const [showAddressForm, setShowAddressForm] = useState(false);
-  const [newAddress, setNewAddress] = useState({ label: 'Home', address: '', lat: 22.5, lng: 88.3 });
+  const [locationName, setLocationName] = useState('Selecting Location...');
+  const [location, setLocation] = useState({ lng: 88.3639, lat: 22.5726 }); // Default Fallback
+  const [showLocationModal, setShowLocationModal] = useState(false);
+  const [manualAddress, setManualAddress] = useState('');
   
   const [cart, setCart] = useState([]);
   const [paymentMethod, setPaymentMethod] = useState('UPI');
@@ -28,25 +31,55 @@ export default function CustomerApp() {
     const token = localStorage.getItem('token');
     if (token) setUserName(JSON.parse(atob(token.split('.')[1])).user.name);
     fetchUserProfile();
+    detectLocation();
   }, []);
 
+  // FIX: Added location.lat and location.lng to dependencies so the store actually refreshes when GPS updates!
   useEffect(() => {
     if (activeTab === 'home') fetchNearbyProducts();
     if (activeTab === 'account' && accountSubTab === 'orders') fetchMyOrders();
-  }, [category, activeTab, testMode, selectedAddress]);
+  }, [category, activeTab, testMode, selectedAddress, location.lat, location.lng]);
 
   const fetchUserProfile = async () => {
     try {
       const res = await axios.get(`${API_URL}/api/auth/me`, getAuth());
       setAddresses(res.data.addresses || []);
-      if(res.data.addresses?.length > 0) setSelectedAddress(res.data.addresses[0]);
     } catch (err) {}
+  };
+
+  const detectLocation = () => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+          setLocationName('Current GPS Location');
+          setSelectedAddress(null); // Overrides saved addresses with Live GPS
+          setShowLocationModal(false);
+        },
+        () => {
+          setLocationName('Kolkata (Default)');
+          setSelectedAddress(null);
+        }
+      );
+    }
+  };
+
+  const setCustomLocation = (e) => {
+    e.preventDefault();
+    if (!manualAddress) return;
+    setLocationName(manualAddress);
+    setLocation({ lat: 22.5, lng: 88.3 }); // Defaults to static for manual typing in test
+    setSelectedAddress(null); // Overrides saved addresses
+    setShowLocationModal(false);
   };
 
   const fetchNearbyProducts = async () => {
     setLoading(true);
     try {
-      const lat = selectedAddress?.lat || 22.5726; const lng = selectedAddress?.lng || 88.3639;
+      // FIX: Dynamically chooses between Saved Address or Live GPS
+      const lat = selectedAddress ? selectedAddress.lat : location.lat; 
+      const lng = selectedAddress ? selectedAddress.lng : location.lng;
+      
       const res = await axios.get(`${API_URL}/api/products/nearby?lng=${lng}&lat=${lat}&category=${category}&testMode=${testMode}`, getAuth());
       
       const uniqueProducts = []; const seenNames = new Set();
@@ -61,7 +94,9 @@ export default function CustomerApp() {
     e.preventDefault();
     try {
       const res = await axios.post(`${API_URL}/api/auth/address`, newAddress, getAuth());
-      setAddresses(res.data); setShowAddressForm(false); setSelectedAddress(res.data[res.data.length - 1]);
+      setAddresses(res.data); setShowAddressForm(false); 
+      setSelectedAddress(res.data[res.data.length - 1]);
+      setLocationName(res.data[res.data.length - 1].address);
       setNewAddress({ label: 'Home', address: '', lat: 22.5, lng: 88.3 });
     } catch (err) { alert('Failed to save address'); }
   };
@@ -71,8 +106,8 @@ export default function CustomerApp() {
   };
 
   const addToCart = (product) => {
-    const existing = cart.find(item => item.name === product.name);
-    if (existing) setCart(cart.map(item => item.name === product.name ? { ...item, cartQty: item.cartQty + 1 } : item));
+    const existing = cart.find(item => item._id === product._id);
+    if (existing) setCart(cart.map(item => item._id === product._id ? { ...item, cartQty: item.cartQty + 1 } : item));
     else setCart([...cart, { ...product, cartQty: 1 }]);
   };
 
@@ -80,8 +115,13 @@ export default function CustomerApp() {
   const cartTotal = cart.reduce((sum, item) => sum + (item.sellingPrice * item.cartQty), 0);
 
   const handlePlaceOrder = async () => {
-    if (!selectedAddress) return alert("Please select or add a delivery address.");
+    // FIX: Safely pull location data whether using GPS or a Saved Address
+    const orderAddress = selectedAddress ? selectedAddress.address : locationName;
+    const orderLat = selectedAddress ? selectedAddress.lat : location.lat;
+    const orderLng = selectedAddress ? selectedAddress.lng : location.lng;
     
+    if (!orderAddress || orderAddress === 'Selecting Location...') return alert("Please specify a delivery location.");
+
     if (paymentMethod === 'UPI') {
       window.location.href = `upi://pay?pa=merchant@quickcomm.com&pn=QuickCommerce&am=${cartTotal}&cu=INR&tn=OrderPayment`;
     }
@@ -89,16 +129,36 @@ export default function CustomerApp() {
     try {
       await axios.post(`${API_URL}/api/orders/create`, {
         items: cart.map(i => ({ name: i.name, cartQty: i.cartQty, price: i.sellingPrice })),
-        totalAmount: cartTotal, paymentMethod, deliveryAddress: selectedAddress.address,
-        lat: selectedAddress.lat, lng: selectedAddress.lng
+        totalAmount: cartTotal, paymentMethod, deliveryAddress: orderAddress,
+        lat: orderLat, lng: orderLng
       }, getAuth());
-      setCart([]); alert("Order Successfully Placed & Dispatched!");
+      
+      setCart([]); 
+      alert("Order Successfully Placed & Dispatched!");
       setActiveTab('account'); setAccountSubTab('orders');
-    } catch (err) { alert("Failed to place order."); }
+    } catch (err) { alert("Failed to place order. Try changing your location or turning on Test Mode."); }
   };
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col pb-24">
+      {/* LOCATION SELECTOR MODAL */}
+      {showLocationModal && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-end md:items-center justify-center">
+          <div className="bg-white w-full md:w-96 rounded-t-3xl md:rounded-3xl p-6 shadow-2xl">
+            <h3 className="text-xl font-bold mb-4">Select Delivery Location</h3>
+            <button onClick={detectLocation} className="w-full flex items-center justify-center gap-2 bg-indigo-100 text-indigo-700 font-bold py-3 rounded-xl mb-4 hover:bg-indigo-200">
+              <Crosshair className="w-5 h-5"/> Use Current GPS Location
+            </button>
+            <div className="relative flex py-2 items-center"><div className="flex-grow border-t border-gray-300"></div><span className="flex-shrink-0 mx-4 text-gray-400 text-sm">or</span><div className="flex-grow border-t border-gray-300"></div></div>
+            <form onSubmit={setCustomLocation} className="mt-2">
+              <input type="text" placeholder="Enter Apartment, Street, City..." value={manualAddress} onChange={(e)=>setManualAddress(e.target.value)} className="w-full p-3 border rounded-xl mb-3 focus:ring-2 focus:ring-indigo-500" required />
+              <button type="submit" className="w-full bg-indigo-600 text-white font-bold py-3 rounded-xl hover:bg-indigo-700">Confirm Location</button>
+            </form>
+            <button onClick={()=>setShowLocationModal(false)} className="w-full mt-3 text-gray-500 font-bold py-2">Cancel</button>
+          </div>
+        </div>
+      )}
+
       <header className="bg-indigo-600 text-white p-4 shadow-md sticky top-0 z-20">
         <div className="max-w-4xl mx-auto flex justify-between items-center">
           <div><h1 className="text-2xl font-extrabold tracking-tight flex items-center gap-2"><ShoppingBag className="w-6 h-6" /> QuickComm</h1></div>
@@ -106,10 +166,10 @@ export default function CustomerApp() {
             <button onClick={() => setTestMode(!testMode)} className={`flex items-center gap-1 text-[10px] px-2 py-1 rounded-full font-bold border transition ${testMode ? 'bg-red-500' : 'bg-indigo-700'}`}>
               <Globe className="w-3 h-3" /> {testMode ? "Test" : "10km"}
             </button>
-            <div className="flex flex-col items-end max-w-[150px]">
+            <button onClick={() => setShowLocationModal(true)} className="flex flex-col items-end max-w-[150px] text-right">
               <span className="text-[10px] font-bold text-indigo-200 uppercase">Delivering to</span>
-              <div className="flex items-center gap-1"><span className="font-bold text-sm truncate">{selectedAddress ? selectedAddress.label : 'No Address'}</span><MapPin className="w-4 h-4 text-pink-400" /></div>
-            </div>
+              <div className="flex items-center gap-1"><span className="font-bold text-sm truncate">{locationName}</span><MapPin className="w-4 h-4 text-pink-400 flex-shrink-0" /></div>
+            </button>
           </div>
         </div>
       </header>
@@ -129,7 +189,7 @@ export default function CustomerApp() {
             : (
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                 {products.map((product) => {
-                  const inCart = cart.find(item => item.name === product.name);
+                  const inCart = cart.find(item => item._id === product._id);
                   return (
                     <div key={product._id} className="bg-white rounded-xl shadow-sm border overflow-hidden flex flex-col">
                       <div className="h-32 bg-white p-2 flex items-center justify-center"><img src={product.imageUrl} className="h-full object-contain" alt=""/></div>
@@ -154,13 +214,24 @@ export default function CustomerApp() {
 
         {activeTab === 'checkout' && (
           <div className="animate-fade-in">
-            <h2 className="text-2xl font-bold mb-4">Checkout</h2>
+            <h2 className="text-2xl font-bold mb-4 flex items-center gap-2"><ShoppingCart className="w-6 h-6"/> Checkout</h2>
+            
             <div className="bg-white rounded-2xl shadow-sm border p-5 mb-4">
-              <h3 className="font-bold text-gray-500 text-sm uppercase mb-3">Delivery Address</h3>
-              {addresses.length === 0 ? <p className="text-red-500 font-bold text-sm mb-2">Please add an address in your Account tab first.</p> : null}
+              <h3 className="font-bold text-gray-500 text-sm uppercase mb-3">Delivery Details</h3>
+              
+              {/* FIX: Shows the active location cleanly whether GPS or Saved */}
+              <div className="flex items-start gap-3 bg-indigo-50 border border-indigo-200 p-4 rounded-xl mb-4">
+                <MapPin className="w-6 h-6 text-indigo-600 mt-0.5" />
+                <div>
+                  <span className="font-bold text-[10px] bg-indigo-600 text-white px-2 py-0.5 rounded uppercase tracking-wider">Active Location</span>
+                  <p className="font-bold text-gray-800 mt-1">{locationName}</p>
+                </div>
+              </div>
+
+              {addresses.length > 0 && <h3 className="font-bold text-gray-400 text-xs uppercase tracking-wider mb-2 border-t pt-4">Or choose a Saved Address</h3>}
               {addresses.map(addr => (
-                <label key={addr._id} className={`flex items-start gap-3 p-3 border rounded-xl cursor-pointer mb-2 ${selectedAddress?._id === addr._id ? 'border-indigo-600 bg-indigo-50' : 'hover:bg-gray-50'}`}>
-                  <input type="radio" checked={selectedAddress?._id === addr._id} onChange={() => setSelectedAddress(addr)} className="mt-1 w-4 h-4 text-indigo-600" />
+                <label key={addr._id} className={`flex items-start gap-3 p-3 border rounded-xl cursor-pointer mb-2 transition ${selectedAddress?._id === addr._id ? 'border-indigo-600 bg-indigo-50' : 'hover:bg-gray-50'}`}>
+                  <input type="radio" checked={selectedAddress?._id === addr._id} onChange={() => { setSelectedAddress(addr); setLocationName(addr.address); }} className="mt-1 w-4 h-4 text-indigo-600" />
                   <div className="flex-1">
                     <span className="font-bold bg-gray-200 px-2 py-0.5 rounded text-xs text-gray-800">{addr.label}</span>
                     <p className="text-sm font-semibold text-gray-700 mt-1">{addr.address}</p>
@@ -181,7 +252,8 @@ export default function CustomerApp() {
                 ))}
               </div>
             </div>
-            <button onClick={handlePlaceOrder} className="w-full bg-indigo-600 text-white font-extrabold py-4 rounded-xl text-lg shadow-lg hover:bg-indigo-700">Pay ₹{cartTotal} & Place Order</button>
+            <button onClick={handlePlaceOrder} className="w-full bg-indigo-600 text-white font-extrabold py-4 rounded-xl text-lg shadow-lg hover:bg-indigo-700 transition transform hover:scale-[1.02]">Pay ₹{cartTotal} & Place Order</button>
+            <button onClick={() => setActiveTab('cart')} className="w-full mt-3 text-gray-500 font-bold py-2 hover:underline">Back to Cart</button>
           </div>
         )}
 
@@ -191,31 +263,40 @@ export default function CustomerApp() {
             <div className="w-full md:w-64 bg-white rounded-2xl shadow-sm border p-4 h-fit">
               <h2 className="font-bold text-gray-400 uppercase text-xs tracking-wider mb-4 px-2">Account Settings</h2>
               <nav className="space-y-1">
-                <button onClick={() => setAccountSubTab('profile')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition ${accountSubTab === 'profile' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600'}`}><UserIcon className="w-5 h-5"/> Profile</button>
-                <button onClick={() => setAccountSubTab('addresses')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition ${accountSubTab === 'addresses' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600'}`}><MapPin className="w-5 h-5"/> Addresses</button>
-                <button onClick={() => setAccountSubTab('orders')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition ${accountSubTab === 'orders' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600'}`}><ShoppingBag className="w-5 h-5"/> My Orders</button>
+                <button onClick={() => setAccountSubTab('profile')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition ${accountSubTab === 'profile' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50'}`}><UserIcon className="w-5 h-5"/> Profile</button>
+                <button onClick={() => setAccountSubTab('addresses')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition ${accountSubTab === 'addresses' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50'}`}><MapPin className="w-5 h-5"/> Addresses</button>
+                <button onClick={() => setAccountSubTab('orders')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition ${accountSubTab === 'orders' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50'}`}><ShoppingBag className="w-5 h-5"/> My Orders</button>
               </nav>
               <button onClick={() => { localStorage.clear(); window.location.href='/'; }} className="w-full mt-8 flex items-center justify-center gap-2 text-red-500 font-bold py-3 hover:bg-red-50 rounded-xl transition"><LogOut className="w-5 h-5"/> Sign Out</button>
             </div>
 
             <div className="flex-1">
+              {accountSubTab === 'profile' && (
+                <div className="bg-white rounded-2xl shadow-sm border p-6 text-center md:text-left">
+                   <div className="w-24 h-24 bg-indigo-100 rounded-full flex items-center justify-center text-indigo-600 mb-4 mx-auto md:mx-0"><UserIcon className="w-12 h-12"/></div>
+                   <h2 className="text-3xl font-bold text-gray-800">{userName}</h2>
+                   <p className="text-gray-500 mt-2 font-medium">Platform Customer</p>
+                </div>
+              )}
+
               {accountSubTab === 'addresses' && (
                 <div className="bg-white rounded-2xl shadow-sm border p-6">
-                  <h3 className="font-bold text-gray-800 text-lg mb-4 flex justify-between items-center">Saved Addresses <button onClick={() => setShowAddressForm(!showAddressForm)} className="bg-indigo-100 text-indigo-700 text-sm px-3 py-1 rounded-lg">+ Add New</button></h3>
+                  <h3 className="font-bold text-gray-800 text-lg mb-4 flex justify-between items-center">Saved Addresses <button onClick={() => setShowAddressForm(!showAddressForm)} className="bg-indigo-100 text-indigo-700 text-sm px-3 py-1 rounded-lg hover:bg-indigo-200">+ Add New</button></h3>
                   {showAddressForm && (
                     <form onSubmit={handleAddAddress} className="mb-6 p-4 bg-gray-50 border rounded-xl">
                       <div className="grid grid-cols-2 gap-4 mb-4">
-                        <select value={newAddress.label} onChange={e=>setNewAddress({...newAddress, label: e.target.value})} className="p-2 border rounded font-bold"><option value="Home">Home</option><option value="Work">Work</option><option value="Other">Other</option></select>
-                        <input type="text" placeholder="Full Address" required value={newAddress.address} onChange={e=>setNewAddress({...newAddress, address: e.target.value})} className="p-2 border rounded col-span-2" />
+                        <select value={newAddress.label} onChange={e=>setNewAddress({...newAddress, label: e.target.value})} className="p-2 border rounded font-bold outline-none"><option value="Home">Home</option><option value="Work">Work</option><option value="Other">Other</option></select>
+                        <input type="text" placeholder="Full Address" required value={newAddress.address} onChange={e=>setNewAddress({...newAddress, address: e.target.value})} className="p-2 border rounded col-span-2 outline-none focus:ring-2 focus:ring-indigo-500" />
                       </div>
-                      <button type="submit" className="bg-indigo-600 text-white font-bold py-2 px-4 rounded hover:bg-indigo-700">Save Address</button>
+                      <button type="submit" className="bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-indigo-700">Save Address</button>
                     </form>
                   )}
                   <div className="space-y-3">
+                    {addresses.length === 0 && <p className="text-gray-500 font-bold p-4 text-center border rounded-xl">No addresses saved yet.</p>}
                     {addresses.map(addr => (
-                      <div key={addr._id} className="border p-4 rounded-xl flex justify-between items-center">
-                        <div><span className="bg-gray-200 text-gray-800 font-bold text-xs px-2 py-0.5 rounded">{addr.label}</span><p className="text-gray-700 mt-2 font-medium">{addr.address}</p></div>
-                        <button onClick={() => handleDeleteAddress(addr._id)} className="text-red-500 p-2 hover:bg-red-50 rounded"><Trash2 className="w-5 h-5"/></button>
+                      <div key={addr._id} className="border p-4 rounded-xl flex justify-between items-center bg-gray-50">
+                        <div><span className="bg-indigo-100 text-indigo-800 font-bold text-xs px-2 py-0.5 rounded uppercase tracking-wider">{addr.label}</span><p className="text-gray-800 mt-2 font-bold">{addr.address}</p></div>
+                        <button onClick={() => handleDeleteAddress(addr._id)} className="text-red-500 p-2 hover:bg-red-100 rounded transition"><Trash2 className="w-5 h-5"/></button>
                       </div>
                     ))}
                   </div>
@@ -225,13 +306,14 @@ export default function CustomerApp() {
               {accountSubTab === 'orders' && (
                 <div className="space-y-4">
                   <h3 className="font-bold text-gray-800 text-lg mb-4">Order History</h3>
+                  {myOrders.length === 0 && <p className="text-gray-500 font-bold p-4 text-center border rounded-xl bg-white">You haven't placed any orders yet.</p>}
                   {myOrders.map(order => (
-                    <div key={order._id} className="bg-white rounded-2xl shadow-sm border p-5">
+                    <div key={order._id} className="bg-white rounded-2xl shadow-sm border p-5 hover:shadow-md transition">
                       <div className="flex justify-between items-start border-b pb-3 mb-3">
                         <div><p className="font-mono text-xs font-bold text-gray-400">{order.orderId}</p><p className="text-sm font-bold text-gray-800 mt-1">{new Date(order.createdAt).toLocaleDateString()}</p></div>
-                        <div className="text-right"><span className="bg-green-100 text-green-800 text-[10px] uppercase font-bold px-2 py-1 rounded">{order.status}</span><p className="font-extrabold text-lg mt-1">₹{order.totalAmount}</p></div>
+                        <div className="text-right"><span className="bg-green-100 text-green-800 text-[10px] uppercase font-bold px-2 py-1 rounded">{order.status}</span><p className="font-extrabold text-lg mt-1 text-gray-900">₹{order.totalAmount}</p></div>
                       </div>
-                      <div className="text-sm text-gray-600"><span className="font-bold">Items: </span> {order.subOrders ? order.subOrders.map(s => s.items.map(i => `${i.cartQty}x ${i.name}`).join(', ')).join(' | ') : order.items?.map(i => `${i.cartQty}x ${i.name}`).join(', ')}</div>
+                      <div className="text-sm text-gray-600"><span className="font-bold text-gray-800">Items: </span> {order.subOrders ? order.subOrders.map(s => s.items.map(i => `${i.cartQty}x ${i.name}`).join(', ')).join(' | ') : order.items?.map(i => `${i.cartQty}x ${i.name}`).join(', ')}</div>
                     </div>
                   ))}
                 </div>
@@ -239,12 +321,41 @@ export default function CustomerApp() {
             </div>
           </div>
         )}
+
+        {/* Existing Cart Tab rendering ... */}
+        {activeTab === 'cart' && (
+          <div className="animate-fade-in">
+            <h2 className="text-2xl font-bold mb-4 flex items-center gap-2"><ShoppingCart className="w-6 h-6"/> Your Cart</h2>
+            {cart.length === 0 ? (
+              <div className="text-center py-20 bg-white rounded-2xl shadow-sm border"><ShoppingCart className="w-16 h-16 mx-auto text-gray-300 mb-4"/><p className="text-xl font-bold text-gray-500">Your cart is empty</p></div>
+            ) : (
+              <div className="bg-white rounded-2xl shadow-sm border p-4">
+                {cart.map(item => (
+                  <div key={item._id} className="flex justify-between items-center mb-4 pb-4 border-b">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 bg-gray-100 rounded flex items-center justify-center p-1"><img src={item.imageUrl} className="max-h-full object-contain" alt=""/></div>
+                      <div><h4 className="font-bold text-sm text-gray-800">{item.name}</h4><p className="font-extrabold text-gray-900 text-sm mt-1">₹{item.sellingPrice}</p></div>
+                    </div>
+                    <div className="flex items-center gap-3 bg-gray-100 rounded-lg px-3 py-1">
+                      <button onClick={() => updateCartQty(item._id, -1)} className="font-bold text-lg text-gray-600 hover:text-pink-600">-</button><span className="font-bold text-sm">{item.cartQty}</span><button onClick={() => updateCartQty(item._id, 1)} className="font-bold text-lg text-gray-600 hover:text-pink-600">+</button>
+                    </div>
+                  </div>
+                ))}
+                <div className="mt-6 border-t pt-4">
+                  <div className="flex justify-between text-xl font-extrabold text-gray-900"><span>Grand Total</span><span>₹{cartTotal}</span></div>
+                </div>
+                <button onClick={() => setActiveTab('checkout')} className="w-full mt-6 bg-pink-500 text-white font-extrabold py-4 rounded-xl text-lg shadow-lg hover:bg-pink-600 flex justify-center items-center gap-2 transition transform hover:scale-[1.02]">Proceed to Checkout <ChevronRight className="w-5 h-5"/></button>
+              </div>
+            )}
+          </div>
+        )}
       </main>
 
-      <nav className="fixed bottom-0 w-full bg-white border-t flex justify-around items-center pb-safe pt-2 px-2 z-30 h-16">
-        <button onClick={() => setActiveTab('home')} className={`flex flex-col items-center flex-1 ${activeTab==='home' ? 'text-indigo-600' : 'text-gray-400'}`}><Home className="w-6 h-6 mb-1"/><span className="text-[10px] font-bold">Home</span></button>
-        <button onClick={() => setActiveTab('cart')} className={`flex flex-col items-center flex-1 relative ${activeTab==='cart' || activeTab==='checkout' ? 'text-pink-600' : 'text-gray-400'}`}><div className="relative"><ShoppingCart className="w-6 h-6 mb-1"/>{cart.length > 0 && <span className="absolute -top-1 -right-2 bg-pink-500 text-white text-[10px] font-bold w-4 h-4 flex items-center justify-center rounded-full">{cart.reduce((s, i)=>s+i.cartQty, 0)}</span>}</div><span className="text-[10px] font-bold">Cart</span></button>
-        <button onClick={() => setActiveTab('account')} className={`flex flex-col items-center flex-1 ${activeTab==='account' ? 'text-indigo-600' : 'text-gray-400'}`}><UserIcon className="w-6 h-6 mb-1"/><span className="text-[10px] font-bold">Account</span></button>
+      {/* BOTTOM NAV */}
+      <nav className="fixed bottom-0 w-full bg-white border-t flex justify-around items-center pb-safe pt-2 px-2 z-30 h-16 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+        <button onClick={() => setActiveTab('home')} className={`flex flex-col items-center flex-1 ${activeTab==='home' ? 'text-indigo-600' : 'text-gray-400 hover:text-indigo-400 transition'}`}><Home className="w-6 h-6 mb-1"/><span className="text-[10px] font-bold">Home</span></button>
+        <button onClick={() => setActiveTab('cart')} className={`flex flex-col items-center flex-1 relative ${activeTab==='cart' || activeTab==='checkout' ? 'text-pink-600' : 'text-gray-400 hover:text-pink-400 transition'}`}><div className="relative"><ShoppingCart className="w-6 h-6 mb-1"/>{cart.length > 0 && <span className="absolute -top-1 -right-2 bg-pink-500 text-white text-[10px] font-bold w-4 h-4 flex items-center justify-center rounded-full shadow-sm">{cart.reduce((s, i)=>s+i.cartQty, 0)}</span>}</div><span className="text-[10px] font-bold">Cart</span></button>
+        <button onClick={() => setActiveTab('account')} className={`flex flex-col items-center flex-1 ${activeTab==='account' ? 'text-indigo-600' : 'text-gray-400 hover:text-indigo-400 transition'}`}><UserIcon className="w-6 h-6 mb-1"/><span className="text-[10px] font-bold">Account</span></button>
       </nav>
     </div>
   );
