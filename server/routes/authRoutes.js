@@ -13,7 +13,7 @@ const generateToken = (user) => jwt.sign(
   process.env.JWT_SECRET, { expiresIn: '7d' }
 );
 
-// --- Auth Routes ---
+// --- Standard Auth Routes ---
 router.post('/register', async (req, res) => {
   try {
     const { name, email, password } = req.body;
@@ -33,6 +33,26 @@ router.post('/login', async (req, res) => {
   } catch (err) { res.status(500).json({ message: 'Server error' }); }
 });
 
+// === THE RESTORED GOOGLE ROUTE ===
+router.post('/google', async (req, res) => {
+  try {
+    const { credential } = req.body;
+    const ticket = await googleClient.verifyIdToken({ idToken: credential, audience: process.env.GOOGLE_CLIENT_ID });
+    const payload = ticket.getPayload();
+    let user = await User.findOne({ email: payload.email });
+    if (!user) {
+      const randomPassword = await bcrypt.hash(Math.random().toString(36).slice(-8), 10);
+      user = new User({ name: payload.name, email: payload.email, password: randomPassword, role: 'customer' });
+      await user.save();
+    }
+    res.json({ token: generateToken(user), user: { id: user._id, name: user.name, role: user.role } });
+  } catch (err) { 
+    console.error("Google Auth Backend Error:", err);
+    res.status(500).json({ message: 'Google Auth Failed' }); 
+  }
+});
+
+// --- Admin & Staff Routes ---
 router.post('/admin-create-staff', verifyAdmin, async (req, res) => {
   try {
     const { name, email, password, role, shopName, retailerCategory, lat, lng, contactNumber } = req.body;
