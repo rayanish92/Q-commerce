@@ -17,7 +17,7 @@ const findNearestRetailerForItems = async (items, lng, lat, excludeRetailerIds =
       if (productRecord) {
         if (!allocations[retailer._id]) allocations[retailer._id] = [];
         allocations[retailer._id].push(item);
-        // NOTE: Stock is NOT deducted here anymore. It waits for the retailer to accept!
+        // Stock is conditionally held; deducted on acceptance
         allocated = true;
         break; 
       }
@@ -74,8 +74,7 @@ router.put('/:orderId/suborder/:subOrderId', verifyRetailerOrAdmin, async (req, 
     if (action === 'Accept') {
       subOrder.status = 'Accepted';
       order.status = 'Accepted by Store';
-      
-      // NEW FIX: Deduct stock ONLY when accepted!
+      // DEDUCT STOCK
       for (let item of subOrder.items) {
         const productRecord = await Product.findOne({ retailerId: req.user.id, name: item.name });
         if (productRecord) {
@@ -96,7 +95,6 @@ router.put('/:orderId/suborder/:subOrderId', verifyRetailerOrAdmin, async (req, 
   } catch (err) { res.status(500).json({ message: 'Error updating order' }); }
 });
 
-// NEW: ADMIN FETCH ALL ORDERS WITH FILTERS
 router.get('/all-orders', verifyAdmin, async (req, res) => {
   try {
     const { retailerId, startDate, endDate, location } = req.query;
