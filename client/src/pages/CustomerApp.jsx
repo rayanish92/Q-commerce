@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { ShoppingBag, Search, MapPin, LogOut, Loader2, Globe, Home, ShoppingCart, User as UserIcon, Plus, Trash2, ChevronRight, Settings, Smartphone } from 'lucide-react';
+import { ShoppingBag, Search, MapPin, LogOut, Loader2, Globe, Home, ShoppingCart, User as UserIcon, Trash2, ChevronRight, Settings, Smartphone, Truck, Package } from 'lucide-react';
 
 export default function CustomerApp() {
   const [activeTab, setActiveTab] = useState('home'); 
@@ -14,7 +14,6 @@ export default function CustomerApp() {
   const [testMode, setTestMode] = useState(false);
   const [userName, setUserName] = useState('');
   
-  // Checkout & Location State
   const [selectedAddress, setSelectedAddress] = useState(null);
   const [showAddressForm, setShowAddressForm] = useState(false);
   const [newAddress, setNewAddress] = useState({ label: 'Home', address: '', lat: 22.5, lng: 88.3 });
@@ -34,7 +33,7 @@ export default function CustomerApp() {
   useEffect(() => {
     if (activeTab === 'home') fetchNearbyProducts();
     if (activeTab === 'account' && accountSubTab === 'orders') fetchMyOrders();
-  }, [category, activeTab, testMode]);
+  }, [category, activeTab, testMode, selectedAddress]);
 
   const fetchUserProfile = async () => {
     try {
@@ -50,7 +49,6 @@ export default function CustomerApp() {
       const lat = selectedAddress?.lat || 22.5726; const lng = selectedAddress?.lng || 88.3639;
       const res = await axios.get(`${API_URL}/api/products/nearby?lng=${lng}&lat=${lat}&category=${category}&testMode=${testMode}`, getAuth());
       
-      // HIDE RETAILERS: Group by product name so customer only sees the item, not who sells it
       const uniqueProducts = []; const seenNames = new Set();
       res.data.forEach(p => { if (!seenNames.has(p.name)) { seenNames.add(p.name); uniqueProducts.push(p); } });
       setProducts(uniqueProducts);
@@ -84,12 +82,8 @@ export default function CustomerApp() {
   const handlePlaceOrder = async () => {
     if (!selectedAddress) return alert("Please select or add a delivery address.");
     
-    // NATIVE UPI APP DEEP LINK INTEGRATION
     if (paymentMethod === 'UPI') {
-      const upiUrl = `upi://pay?pa=merchant@quickcomm.com&pn=QuickCommerce&am=${cartTotal}&cu=INR&tn=OrderPayment`;
-      window.location.href = upiUrl;
-      // Note: On mobile, this opens GPay/PhonePe. If the user cancels or is on desktop, it fails silently.
-      // In production, you await a callback from the payment gateway. We proceed here for UX.
+      window.location.href = `upi://pay?pa=merchant@quickcomm.com&pn=QuickCommerce&am=${cartTotal}&cu=INR&tn=OrderPayment`;
     }
 
     try {
@@ -137,7 +131,6 @@ export default function CustomerApp() {
                 {products.map((product) => {
                   const inCart = cart.find(item => item.name === product.name);
                   return (
-                    // RETAILER BADGE IS 100% GONE. Customers don't know who fulfills it!
                     <div key={product._id} className="bg-white rounded-xl shadow-sm border overflow-hidden flex flex-col">
                       <div className="h-32 bg-white p-2 flex items-center justify-center"><img src={product.imageUrl} className="h-full object-contain" alt=""/></div>
                       <div className="p-3 bg-gray-50 border-t flex-1 flex flex-col justify-between">
@@ -162,9 +155,9 @@ export default function CustomerApp() {
         {activeTab === 'checkout' && (
           <div className="animate-fade-in">
             <h2 className="text-2xl font-bold mb-4">Checkout</h2>
-            
             <div className="bg-white rounded-2xl shadow-sm border p-5 mb-4">
               <h3 className="font-bold text-gray-500 text-sm uppercase mb-3">Delivery Address</h3>
+              {addresses.length === 0 ? <p className="text-red-500 font-bold text-sm mb-2">Please add an address in your Account tab first.</p> : null}
               {addresses.map(addr => (
                 <label key={addr._id} className={`flex items-start gap-3 p-3 border rounded-xl cursor-pointer mb-2 ${selectedAddress?._id === addr._id ? 'border-indigo-600 bg-indigo-50' : 'hover:bg-gray-50'}`}>
                   <input type="radio" checked={selectedAddress?._id === addr._id} onChange={() => setSelectedAddress(addr)} className="mt-1 w-4 h-4 text-indigo-600" />
@@ -174,7 +167,6 @@ export default function CustomerApp() {
                   </div>
                 </label>
               ))}
-              <button onClick={() => { setActiveTab('account'); setAccountSubTab('addresses'); }} className="text-indigo-600 font-bold text-sm mt-2 flex items-center gap-1">+ Add New Address</button>
             </div>
 
             <div className="bg-white rounded-2xl shadow-sm border p-5 mb-6">
@@ -189,12 +181,11 @@ export default function CustomerApp() {
                 ))}
               </div>
             </div>
-            
             <button onClick={handlePlaceOrder} className="w-full bg-indigo-600 text-white font-extrabold py-4 rounded-xl text-lg shadow-lg hover:bg-indigo-700">Pay ₹{cartTotal} & Place Order</button>
           </div>
         )}
 
-        {/* TAB 4: ACCOUNT SUB-SECTIONS (ADDRESS MANAGER) */}
+        {/* TAB 4: ACCOUNT SUB-SECTIONS */}
         {activeTab === 'account' && (
           <div className="flex flex-col md:flex-row gap-6">
             <div className="w-full md:w-64 bg-white rounded-2xl shadow-sm border p-4 h-fit">
@@ -211,7 +202,6 @@ export default function CustomerApp() {
               {accountSubTab === 'addresses' && (
                 <div className="bg-white rounded-2xl shadow-sm border p-6">
                   <h3 className="font-bold text-gray-800 text-lg mb-4 flex justify-between items-center">Saved Addresses <button onClick={() => setShowAddressForm(!showAddressForm)} className="bg-indigo-100 text-indigo-700 text-sm px-3 py-1 rounded-lg">+ Add New</button></h3>
-                  
                   {showAddressForm && (
                     <form onSubmit={handleAddAddress} className="mb-6 p-4 bg-gray-50 border rounded-xl">
                       <div className="grid grid-cols-2 gap-4 mb-4">
@@ -221,7 +211,6 @@ export default function CustomerApp() {
                       <button type="submit" className="bg-indigo-600 text-white font-bold py-2 px-4 rounded hover:bg-indigo-700">Save Address</button>
                     </form>
                   )}
-
                   <div className="space-y-3">
                     {addresses.map(addr => (
                       <div key={addr._id} className="border p-4 rounded-xl flex justify-between items-center">
