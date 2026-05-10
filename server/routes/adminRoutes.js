@@ -13,6 +13,22 @@ router.get('/users', verifyAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ message: 'Error fetching users' }); }
 });
 
+// NEW: Edit User Details Route
+router.put('/users/:id', verifyAdmin, async (req, res) => {
+  try {
+    const { name, email, contactNumber, shopName, lat, lng } = req.body;
+    let updateData = { name, email, contactNumber, shopName };
+    
+    // Update location if coordinates provided
+    if (lat && lng) {
+      updateData.location = { type: 'Point', coordinates: [parseFloat(lng), parseFloat(lat)] };
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(req.params.id, updateData, { new: true }).select('-password');
+    res.status(200).json({ message: 'User updated successfully', user: updatedUser });
+  } catch (err) { res.status(500).json({ message: 'Error updating user' }); }
+});
+
 router.post('/master-products', verifyAdmin, async (req, res) => {
   try {
     const newMaster = new MasterProduct(req.body);
@@ -28,7 +44,6 @@ router.get('/master-products', verifyToken, async (req, res) => {
   } catch (err) { res.status(500).json({ message: 'Error fetching master catalog' }); }
 });
 
-// Fetch all pending actions (New Products, Deletions, Price Updates)
 router.get('/pending-approvals', verifyAdmin, async (req, res) => {
   try {
     const pendingProducts = await Product.find({ 
@@ -38,14 +53,13 @@ router.get('/pending-approvals', verifyAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ message: 'Error fetching approvals' }); }
 });
 
-// ADMIN APPROVES PRODUCT & SETS THE SELLING PRICE
 router.put('/approve-product/:id', verifyAdmin, async (req, res) => {
   try {
     const { action, sellingPrice } = req.body; 
     if (action === 'approve') {
       const updated = await Product.findByIdAndUpdate(req.params.id, { 
         status: 'Approved',
-        sellingPrice: sellingPrice // Admin dictates the final price
+        sellingPrice: sellingPrice 
       }, { new: true });
       res.status(200).json(updated);
     } else {
