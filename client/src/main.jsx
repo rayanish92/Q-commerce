@@ -3,10 +3,12 @@ import ReactDOM from 'react-dom/client';
 import App from './App.jsx';
 import './index.css';
 
-// Import the PWA Virtual Module (Created by Vite during the Render build)
+// 1. IMPORT THE GOOGLE PROVIDER
+import { GoogleOAuthProvider } from '@react-oauth/google';
+
+// 2. IMPORT THE PWA REGISTRATION
 import { registerSW } from 'virtual:pwa-register';
 
-// Auto-prompts the user to refresh if you push new code to Render
 const updateSW = registerSW({
   onNeedRefresh() {
     if (confirm('New system update available! Click OK to refresh.')) {
@@ -18,8 +20,14 @@ const updateSW = registerSW({
   },
 });
 
+// 3. GET YOUR GOOGLE ID FROM RENDER
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <App />
+    {/* 4. WRAP THE ENTIRE APP IN THE GOOGLE PROVIDER */}
+    <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
+      <App />
+    </GoogleOAuthProvider>
   </React.StrictMode>,
 );
