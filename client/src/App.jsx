@@ -7,40 +7,46 @@ import RetailerApp from './pages/RetailerApp.jsx';
 import AdminApp from './pages/AdminApp.jsx';
 import AgentApp from './pages/AgentApp.jsx';
 
-// STRICT SMART PORTAL WRAPPER
-const Portal = ({ children, allowedRole, portalName }) => {
-  const token = localStorage.getItem('token');
-
-  if (!token) {
-    return <Auth portalName={portalName} />;
-  }
-  
+// CRITICAL FIX: Uncrashable JWT Decoder
+// This safely decodes the token so refreshing NEVER logs you out.
+const parseJwt = (token) => {
   try {
-    // ----------------------------------------------------------------------
-    // CRITICAL FIX: Robust JWT Decoding.
-    // Standard atob() crashes on '-' and '_' characters in Base64Url tokens.
-    // This safely decodes the token so refreshing never logs you out again!
-    // ----------------------------------------------------------------------
     const base64Url = token.split('.')[1];
     const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
     const jsonPayload = decodeURIComponent(window.atob(base64).split('').map(function(c) {
         return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
     }).join(''));
-    
-    const userRole = JSON.parse(jsonPayload).user.role;
-
-    // STRICT SECURITY CHECK
-    if (userRole === allowedRole) {
-      return children;
-    } else {
-      // If a user tries to cross-contaminate portals, destroy their session
-      localStorage.clear();
-      return <Auth portalName={portalName} customError={`Access Denied. This portal is strictly for ${allowedRole.replace('_', ' ')}s.`} />;
-    }
+    return JSON.parse(jsonPayload);
   } catch (e) {
-    console.error("Token parsing error on refresh:", e);
-    localStorage.clear();
+    return null;
+  }
+};
+
+const Portal = ({ children, allowedRole, portalName }) => {
+  const token = localStorage.getItem('token');
+
+  // If there is absolutely no token, show login
+  if (!token || token === 'undefined') {
     return <Auth portalName={portalName} />;
+  }
+  
+  const decodedToken = parseJwt(token);
+  
+  // If the token is corrupted or expired, clear it and show login
+  if (!decodedToken) {
+    localStorage.removeItem('token');
+    return <Auth portalName={portalName} customError="Session expired. Please log in again." />;
+  }
+
+  const userRole = decodedToken.user.role;
+
+  // STRICT SECURITY CHECK
+  if (userRole === allowedRole) {
+    return children;
+  } else {
+    // If a user tries to cross-contaminate portals, destroy their session
+    localStorage.removeItem('token');
+    return <Auth portalName={portalName} customError={`Access Denied. This portal is strictly for ${allowedRole.replace('_', ' ')}s.`} />;
   }
 };
 
@@ -48,19 +54,10 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* Customer Portal */}
         <Route path="/" element={<Portal allowedRole="customer" portalName="Customer"><CustomerApp /></Portal>} />
-        
-        {/* Retailer Portal */}
         <Route path="/retailer" element={<Portal allowedRole="retailer" portalName="Retailer"><RetailerApp /></Portal>} />
-        
-        {/* Admin Portal */}
         <Route path="/admin" element={<Portal allowedRole="admin" portalName="Admin"><AdminApp /></Portal>} />
-        
-        {/* Delivery Agent Portal */}
         <Route path="/agent" element={<Portal allowedRole="delivery_agent" portalName="Delivery Agent"><AgentApp /></Portal>} />
-
-        {/* Fallback for typos */}
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
     </BrowserRouter>
