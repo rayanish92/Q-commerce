@@ -1,16 +1,19 @@
 import React from 'react';
+import { LogOut, Map } from 'lucide-react';
 
 export default function AgentApp() {
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <header className="bg-amber-500 text-white p-4 rounded-xl shadow-md flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">🛵 Delivery Agent App</h1>
-        <button onClick={() => { localStorage.clear(); window.location.href='/'; }} className="bg-amber-700 px-4 py-2 rounded hover:bg-amber-800 transition">Logout</button>
-      </header>
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-        <h2 className="text-xl font-semibold mb-4">Active Deliveries</h2>
-        <p className="text-gray-500">Your map route and pickup stops will appear here...</p>
-      </div>
+    <div className="min-h-screen bg-gray-100 flex flex-col items-center justify-center p-4">
+      <Map className="w-16 h-16 text-indigo-600 mb-4" />
+      <h1 className="text-3xl font-extrabold text-gray-800 mb-2">Delivery Agent Portal</h1>
+      <p className="text-gray-500 mb-8">This module is currently under construction.</p>
+      
+      <button 
+        onClick={() => { localStorage.clear(); window.location.href='/'; }} 
+        className="bg-red-500 text-white font-bold py-2 px-6 rounded-lg hover:bg-red-600 flex items-center gap-2"
+      >
+        <LogOut className="w-5 h-5" /> Logout
+      </button>
     </div>
   );
 }
