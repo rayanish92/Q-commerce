@@ -31,7 +31,6 @@ export default function AdminApp() {
   const fetchUsers = async () => { try { setUsers((await axios.get(`${API_URL}/api/admin/users`, getAuth())).data || []); } catch (err) { setUsers([]); } };
   const fetchMasterProducts = async () => { try { setMasterProducts((await axios.get(`${API_URL}/api/admin/master-products`, getAuth())).data || []); } catch (err) { setMasterProducts([]); } };
   
-  // FIX: White Screen Crash Protection for Approvals
   const fetchApprovals = async () => { 
     try { 
       const res = await axios.get(`${API_URL}/api/admin/pending-approvals`, getAuth()); 
@@ -56,7 +55,11 @@ export default function AdminApp() {
 
   const handleCreateStaff = async (e) => {
     e.preventDefault();
-    try { await axios.post(`${API_URL}/api/auth/admin-create-staff`, staffForm, getAuth()); setMessage("Staff Created!"); } catch (err) {}
+    try { 
+      await axios.post(`${API_URL}/api/auth/admin-create-staff`, staffForm, getAuth()); 
+      setMessage("Staff Created Successfully!"); 
+      setStaffForm({ name: '', email: '', password: '', role: 'retailer', shopName: '', retailerCategory: 'Groceries', contactNumber: '', lat: '', lng: '' });
+    } catch (err) { setMessage(err.response?.data?.message || 'Error creating staff'); }
   };
 
   const handleCreateMaster = async (e) => {
@@ -136,6 +139,47 @@ export default function AdminApp() {
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* RESTORED STAFF TAB */}
+        {activeTab === 'staff' && (
+          <div className="bg-white p-6 rounded-2xl shadow-sm max-w-2xl border border-gray-100">
+            <h2 className="text-2xl font-bold mb-6 border-b pb-2">Generate Credentials</h2>
+            <form onSubmit={handleCreateStaff} className="space-y-4">
+              <select value={staffForm.role} onChange={(e) => setStaffForm({...staffForm, role: e.target.value})} className="w-full p-3 border rounded-lg bg-gray-50">
+                <option value="retailer">Retailer (Shop Owner)</option>
+                <option value="delivery_agent">Delivery Agent</option>
+              </select>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <input type="text" placeholder="Full Name" value={staffForm.name} onChange={(e) => setStaffForm({...staffForm, name: e.target.value})} required className="p-3 border rounded-lg outline-none" />
+                <input type="email" placeholder="Login Email" value={staffForm.email} onChange={(e) => setStaffForm({...staffForm, email: e.target.value})} required className="p-3 border rounded-lg outline-none" />
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <input type="password" placeholder="Set Password" value={staffForm.password} onChange={(e) => setStaffForm({...staffForm, password: e.target.value})} required className="p-3 border rounded-lg outline-none" />
+                <input type="text" placeholder="Contact Number" value={staffForm.contactNumber} onChange={(e) => setStaffForm({...staffForm, contactNumber: e.target.value})} className="p-3 border rounded-lg outline-none" />
+              </div>
+
+              {staffForm.role === 'retailer' && (
+                <div className="space-y-4 bg-indigo-50 p-4 rounded-lg border border-indigo-100">
+                  <div className="grid grid-cols-2 gap-4">
+                    <input type="text" placeholder="Shop Name" value={staffForm.shopName} onChange={(e) => setStaffForm({...staffForm, shopName: e.target.value})} required className="p-3 border rounded-lg outline-none" />
+                    <select value={staffForm.retailerCategory} onChange={(e) => setStaffForm({...staffForm, retailerCategory: e.target.value})} className="p-3 border rounded-lg bg-white outline-none">
+                      <option value="Groceries">Groceries</option>
+                      <option value="Pharmacy">Pharmacy</option>
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <input type="text" placeholder="Latitude (e.g. 22.5726)" value={staffForm.lat} onChange={(e) => setStaffForm({...staffForm, lat: e.target.value})} required className="p-3 border rounded-lg outline-none" />
+                    <input type="text" placeholder="Longitude (e.g. 88.3639)" value={staffForm.lng} onChange={(e) => setStaffForm({...staffForm, lng: e.target.value})} required className="p-3 border rounded-lg outline-none" />
+                  </div>
+                </div>
+              )}
+              
+              <button type="submit" className="w-full bg-indigo-600 text-white font-bold py-3 rounded-lg shadow-md hover:bg-indigo-700">Create Account</button>
+            </form>
           </div>
         )}
 
