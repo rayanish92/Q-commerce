@@ -38,6 +38,9 @@ export default function CustomerApp() {
   const [testMode, setTestMode] = useState(false);
   const [cart, setCart] = useState([]);
   
+  // DYNAMIC CATEGORIES IN CUSTOMER APP
+  const baseCategories = ['All', 'Groceries', 'Vegetables', 'Fruits', 'Dairy', 'Snacks', 'Beverages', 'Pharmacy', 'Meat & Seafood', 'Bakery', 'Personal Care', 'Home & Kitchen'];
+  
   // PAYMENT & FEE STATES
   const [paymentMethod, setPaymentMethod] = useState('UPI');
   const [upiStatus, setUpiStatus] = useState('pending');
@@ -72,7 +75,6 @@ export default function CustomerApp() {
       setUserProfile(res.data);
       setAddresses(res.data.addresses || []);
       setEditPhoneValue(res.data.contactNumber || '');
-      // Setup default new address template
       setNewAddress(prev => ({ ...prev, contactName: res.data.name, phoneNumber: res.data.contactNumber || '' }));
     } catch (err) {}
   };
@@ -96,8 +98,6 @@ export default function CustomerApp() {
             const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
             const data = await res.json();
             setLocationName(data.display_name.split(',').slice(0,2).join(','));
-            
-            // STRICTLY BLANK out the address so the checkout form is completely empty
             setNewAddress(prev => ({...prev, lat, lng, address: '', pincode: '', landmark: ''}));
           } catch(err) { setLocationName('Current GPS Location'); }
           setShowLocationModal(false);
@@ -107,12 +107,10 @@ export default function CustomerApp() {
     }
   };
 
-  // HYPER-LOCAL INDIA SEARCH FOR MAP MODAL
   const handleModalSearch = async (e) => {
     const query = e.target.value; setModalAddress(query);
     if (query.length > 2) {
       try {
-        // Enforced CountryCode=IN to force search in India for rural areas
         const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=8&countrycodes=in`);
         setModalSuggestions(await res.json());
       } catch (err) { setModalSuggestions([]); }
@@ -123,8 +121,6 @@ export default function CustomerApp() {
     const lat = parseFloat(suggestion.lat); const lng = parseFloat(suggestion.lon);
     setLocation({ lat, lng });
     setLocationName(suggestion.display_name.split(',')[0] + ', ' + suggestion.display_name.split(',')[1]);
-    
-    // Strictly clear manual address for checkout
     setNewAddress(prev => ({...prev, lat, lng, address: '', pincode: '', landmark: ''}));
     setSelectedAddress(null); 
     setShowLocationModal(false); setModalSuggestions([]); setModalAddress('');
@@ -140,12 +136,7 @@ export default function CustomerApp() {
   };
 
   const selectFormSuggestion = (suggestion) => {
-    setNewAddress(prev => ({
-      ...prev, 
-      address: suggestion.display_name, 
-      lat: parseFloat(suggestion.lat), 
-      lng: parseFloat(suggestion.lon)
-    }));
+    setNewAddress(prev => ({...prev, address: suggestion.display_name, lat: parseFloat(suggestion.lat), lng: parseFloat(suggestion.lon)}));
     setFormSuggestions([]);
   };
 
@@ -242,41 +233,29 @@ export default function CustomerApp() {
         <div className="fixed inset-0 bg-black/60 z-50 flex items-end md:items-center justify-center">
           <div className="bg-white w-full md:w-96 rounded-t-3xl md:rounded-3xl p-6 shadow-2xl h-[85vh] md:h-[90vh] flex flex-col">
             <h3 className="text-xl font-bold mb-4">Set Map Location</h3>
-            <button onClick={detectLocation} className="w-full flex items-center justify-center gap-2 bg-indigo-100 text-indigo-700 font-bold py-3 rounded-xl mb-4 hover:bg-indigo-200 shadow-sm">
-              <Crosshair className="w-5 h-5"/> Use Current GPS Location
-            </button>
-            
+            <button onClick={detectLocation} className="w-full flex items-center justify-center gap-2 bg-indigo-100 text-indigo-700 font-bold py-3 rounded-xl mb-4 hover:bg-indigo-200 shadow-sm"><Crosshair className="w-5 h-5"/> Use Current GPS Location</button>
             <div className="relative flex py-1 items-center"><div className="flex-grow border-t border-gray-300"></div><span className="flex-shrink-0 mx-4 text-gray-400 text-xs uppercase tracking-wider font-bold">Or Search City/Town</span><div className="flex-grow border-t border-gray-300"></div></div>
-            
             <div className="mt-2 relative">
               <input type="text" placeholder="Search town or nearest city..." value={modalAddress} onChange={handleModalSearch} className="w-full p-3 border rounded-xl mb-2 focus:ring-2 focus:ring-indigo-500 outline-none shadow-inner" />
               {modalSuggestions.length > 0 && (
                 <div className="bg-white border rounded-lg shadow-lg overflow-hidden absolute w-full z-10 max-h-48 overflow-y-auto">
-                  {modalSuggestions.map((sug, i) => (
-                    <button key={i} onClick={() => selectModalSuggestion(sug)} className="w-full text-left p-3 border-b hover:bg-gray-50 text-sm text-gray-700 font-medium">
-                      {sug.display_name}
-                    </button>
-                  ))}
+                  {modalSuggestions.map((sug, i) => <button key={i} onClick={() => selectModalSuggestion(sug)} className="w-full text-left p-3 border-b hover:bg-gray-50 text-sm text-gray-700 font-medium">{sug.display_name}</button>)}
                 </div>
               )}
               <p className="text-[10px] text-gray-400 text-center px-2 mt-1">If your exact village isn't listed, select your nearest town. You can type your exact village name manually during Checkout.</p>
             </div>
-
-            {/* SAVED ADDRESSES SECTION IN MODAL */}
             {addresses.length > 0 && (
               <div className="mt-4 flex-1 overflow-hidden flex flex-col">
                 <div className="relative flex py-2 items-center"><div className="flex-grow border-t border-gray-300"></div><span className="flex-shrink-0 mx-4 text-gray-400 text-xs uppercase tracking-wider font-bold">Or Choose Saved</span><div className="flex-grow border-t border-gray-300"></div></div>
                 <div className="overflow-y-auto space-y-2 mt-2 pr-1">
                   {addresses.map(addr => (
                     <button key={addr._id} onClick={() => { setSelectedAddress(addr); setShowLocationModal(false); }} className="w-full text-left p-3 border border-indigo-100 rounded-xl hover:bg-indigo-50 transition bg-white shadow-sm">
-                      <span className="font-bold text-sm text-indigo-700 block">{addr.label}</span>
-                      <span className="text-xs text-gray-600 block truncate">{addr.address}</span>
+                      <span className="font-bold text-sm text-indigo-700 block">{addr.label}</span><span className="text-xs text-gray-600 block truncate">{addr.address}</span>
                     </button>
                   ))}
                 </div>
               </div>
             )}
-
             <button onClick={()=>setShowLocationModal(false)} className="w-full mt-4 text-gray-500 font-bold py-3 bg-gray-100 rounded-xl hover:bg-gray-200">Close</button>
           </div>
         </div>
@@ -286,9 +265,7 @@ export default function CustomerApp() {
         <div className="max-w-4xl mx-auto flex justify-between items-center">
           <div><h1 className="text-2xl font-extrabold tracking-tight flex items-center gap-2"><ShoppingBag className="w-6 h-6" /> QuickComm</h1></div>
           <div className="flex items-center gap-3">
-            <button onClick={() => setTestMode(!testMode)} className={`flex items-center gap-1 text-[10px] px-2 py-1 rounded-full font-bold border transition ${testMode ? 'bg-red-500' : 'bg-indigo-700'}`}>
-              <Globe className="w-3 h-3" /> {testMode ? "Test" : "10km"}
-            </button>
+            <button onClick={() => setTestMode(!testMode)} className={`flex items-center gap-1 text-[10px] px-2 py-1 rounded-full font-bold border transition ${testMode ? 'bg-red-500' : 'bg-indigo-700'}`}><Globe className="w-3 h-3" /> {testMode ? "Test" : "10km"}</button>
             <button onClick={() => setShowLocationModal(true)} className="flex flex-col items-end max-w-[150px] text-right bg-indigo-700 p-2 rounded-lg hover:bg-indigo-800 transition shadow-inner">
               <span className="text-[10px] font-bold text-indigo-200 uppercase">Delivering to</span>
               <div className="flex items-center gap-1"><span className="font-bold text-sm truncate">{selectedAddress ? `${selectedAddress.label} (${selectedAddress.pincode})` : locationName}</span><MapPin className="w-4 h-4 text-pink-400 flex-shrink-0" /></div>
@@ -298,11 +275,10 @@ export default function CustomerApp() {
       </header>
 
       <main className="max-w-4xl mx-auto w-full p-4 flex-1">
-        
         {activeTab === 'home' && (
           <>
             <div className="flex overflow-x-auto pb-4 gap-3 hide-scrollbar mt-4">
-              {['All', 'Groceries', 'Dairy', 'Vegetables', 'Snacks', 'Pharmacy'].map(cat => (
+              {baseCategories.map(cat => (
                 <button key={cat} onClick={() => setCategory(cat)} className={`whitespace-nowrap px-5 py-2 rounded-full font-semibold shadow-sm transition-all ${category === cat ? 'bg-pink-500 text-white transform scale-105' : 'bg-white text-gray-600 border'}`}>{cat}</button>
               ))}
             </div>
@@ -338,11 +314,9 @@ export default function CustomerApp() {
         {activeTab === 'checkout' && (
           <div className="animate-fade-in">
             <h2 className="text-2xl font-bold mb-4 flex items-center gap-2"><ShoppingCart className="w-6 h-6"/> Checkout</h2>
-            
             <div className="bg-white rounded-2xl shadow-sm border p-5 mb-4">
               <h3 className="font-bold text-gray-500 text-sm uppercase mb-3">Delivery Address</h3>
               
-              {/* Option 1: Unsaved Map Location */}
               <label className={`flex items-start gap-3 p-4 border rounded-xl cursor-pointer mb-4 transition ${!selectedAddress ? 'border-indigo-600 bg-indigo-50 shadow-sm' : 'hover:bg-gray-50'}`}>
                 <input type="radio" checked={!selectedAddress} onChange={() => { setSelectedAddress(null); setNewAddress(prev => ({...prev, address: '', pincode: '', landmark: ''})); }} className="mt-1 w-4 h-4 text-indigo-600" />
                 <div className="flex-1">
@@ -354,7 +328,6 @@ export default function CustomerApp() {
                        <input type="text" placeholder="Contact Name" value={newAddress.contactName} onChange={(e) => setNewAddress({...newAddress, contactName: e.target.value})} className="border p-2 rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
                        <input type="text" placeholder="Phone Number" value={newAddress.phoneNumber} onChange={(e) => setNewAddress({...newAddress, phoneNumber: e.target.value})} className="border p-2 rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
                        
-                       {/* Dropdown for Manual Entry inside Checkout */}
                        <div className="relative md:col-span-2">
                          <input type="text" placeholder="Start typing exact Village/Street/Area..." value={newAddress.address} onChange={(e) => { setNewAddress({...newAddress, address: e.target.value}); handleFormSearch(e.target.value); }} className="w-full border p-2 rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
                          {formSuggestions.length > 0 && (
@@ -371,16 +344,11 @@ export default function CustomerApp() {
                 </div>
               </label>
 
-              {/* Option 2: Saved Addresses */}
               {addresses.length > 0 && <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 border-t pt-4">Or Use Saved Address</div>}
               {addresses.map(addr => (
                 <label key={addr._id} className={`flex items-start gap-3 p-3 border rounded-xl cursor-pointer mb-2 transition ${selectedAddress?._id === addr._id ? 'border-indigo-600 bg-indigo-50 shadow-sm' : 'hover:bg-gray-50'}`}>
                   <input type="radio" checked={selectedAddress?._id === addr._id} onChange={() => setSelectedAddress(addr)} className="mt-1 w-4 h-4 text-indigo-600" />
-                  <div className="flex-1">
-                    <span className="font-bold bg-gray-200 px-2 py-0.5 rounded text-xs text-gray-800">{addr.label}</span>
-                    <p className="text-sm font-bold text-gray-800 mt-1">{addr.contactName} - {addr.phoneNumber}</p>
-                    <p className="text-xs font-medium text-gray-600 mt-1">{addr.address} {addr.landmark ? `(${addr.landmark})` : ''} - PIN: {addr.pincode}</p>
-                  </div>
+                  <div className="flex-1"><span className="font-bold bg-gray-200 px-2 py-0.5 rounded text-xs text-gray-800">{addr.label}</span><p className="text-sm font-bold text-gray-800 mt-1">{addr.contactName} - {addr.phoneNumber}</p><p className="text-xs font-medium text-gray-600 mt-1">{addr.address} {addr.landmark ? `(${addr.landmark})` : ''} - PIN: {addr.pincode}</p></div>
                 </label>
               ))}
             </div>
@@ -397,9 +365,7 @@ export default function CustomerApp() {
               {upiStatus === 'pending' ? (
                 <>
                   <label className={`flex items-center gap-3 p-4 border rounded-xl cursor-pointer mb-3 ${paymentMethod === 'UPI' ? 'border-indigo-600 bg-indigo-50' : 'hover:bg-gray-50'}`}>
-                    <input type="radio" name="payment" value="UPI" checked={paymentMethod === 'UPI'} onChange={(e) => setPaymentMethod(e.target.value)} className="w-5 h-5 text-indigo-600" />
-                    <span className="font-bold text-gray-800 flex-1">Pay via UPI App</span>
-                    <Smartphone className="w-6 h-6 text-gray-400"/>
+                    <input type="radio" name="payment" value="UPI" checked={paymentMethod === 'UPI'} onChange={(e) => setPaymentMethod(e.target.value)} className="w-5 h-5 text-indigo-600" /><span className="font-bold text-gray-800 flex-1">Pay via UPI App</span><Smartphone className="w-6 h-6 text-gray-400"/>
                   </label>
                   {paymentMethod === 'UPI' && (
                     <div className="pl-8 mb-4 grid grid-cols-2 md:grid-cols-4 gap-2">
@@ -410,8 +376,7 @@ export default function CustomerApp() {
                     </div>
                   )}
                   <label className={`flex items-center gap-3 p-4 border rounded-xl cursor-pointer ${paymentMethod === 'COD' ? 'border-indigo-600 bg-indigo-50' : 'hover:bg-gray-50'}`}>
-                    <input type="radio" name="payment" value="COD" checked={paymentMethod === 'COD'} onChange={(e) => setPaymentMethod(e.target.value)} className="w-5 h-5 text-indigo-600" />
-                    <span className="font-bold text-gray-800 flex-1">Cash on Delivery (COD)</span>
+                    <input type="radio" name="payment" value="COD" checked={paymentMethod === 'COD'} onChange={(e) => setPaymentMethod(e.target.value)} className="w-5 h-5 text-indigo-600" /><span className="font-bold text-gray-800 flex-1">Cash on Delivery (COD)</span>
                   </label>
                 </>
               ) : (
@@ -454,15 +419,9 @@ export default function CustomerApp() {
                      <div><label className="text-xs font-bold text-gray-500 uppercase">Full Name</label><p className="text-xl font-bold text-gray-800">{userProfile.name}</p></div>
                      <div><label className="text-xs font-bold text-gray-500 uppercase">Email Address</label><p className="text-lg font-medium text-gray-600">{userProfile.email}</p></div>
                      <div className="bg-gray-50 p-4 rounded-xl border">
-                       <div className="flex justify-between items-center mb-2">
-                         <label className="text-xs font-bold text-gray-500 uppercase">Phone Number</label>
-                         {!isEditingPhone && <button onClick={() => setIsEditingPhone(true)} className="text-indigo-600 hover:underline text-sm font-bold flex items-center gap-1"><Edit2 className="w-4 h-4"/> Edit</button>}
-                       </div>
+                       <div className="flex justify-between items-center mb-2"><label className="text-xs font-bold text-gray-500 uppercase">Phone Number</label>{!isEditingPhone && <button onClick={() => setIsEditingPhone(true)} className="text-indigo-600 hover:underline text-sm font-bold flex items-center gap-1"><Edit2 className="w-4 h-4"/> Edit</button>}</div>
                        {isEditingPhone ? (
-                         <div className="flex gap-2">
-                           <input type="text" value={editPhoneValue} onChange={e => setEditPhoneValue(e.target.value)} className="flex-1 p-2 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-bold" />
-                           <button onClick={handleSavePhone} className="bg-green-600 text-white px-4 py-2 rounded-lg font-bold">Save</button>
-                         </div>
+                         <div className="flex gap-2"><input type="text" value={editPhoneValue} onChange={e => setEditPhoneValue(e.target.value)} className="flex-1 p-2 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-bold" /><button onClick={handleSavePhone} className="bg-green-600 text-white px-4 py-2 rounded-lg font-bold">Save</button></div>
                        ) : <p className="text-lg font-medium text-gray-800">{userProfile.contactNumber || 'Not provided'}</p>}
                      </div>
                    </div>
@@ -482,7 +441,6 @@ export default function CustomerApp() {
                         <input type="text" placeholder="Phone Number" required value={newAddress.phoneNumber} onChange={e=>setNewAddress({...newAddress, phoneNumber: e.target.value})} className="w-full p-3 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500" />
                         <input type="text" placeholder="Pincode" required value={newAddress.pincode} onChange={e=>setNewAddress({...newAddress, pincode: e.target.value})} className="w-full p-3 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-bold" />
                       </div>
-                      
                       <div className="relative">
                         <input type="text" placeholder="Full Address (Start typing to search...)" required value={newAddress.address} onChange={(e)=>{setNewAddress({...newAddress, address: e.target.value}); handleFormSearch(e.target.value);}} className="w-full p-3 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500" />
                         {formSuggestions.length > 0 && (
@@ -491,9 +449,7 @@ export default function CustomerApp() {
                           </div>
                         )}
                       </div>
-
                       <input type="text" placeholder="Landmark (Optional)" value={newAddress.landmark} onChange={e=>setNewAddress({...newAddress, landmark: e.target.value})} className="w-full p-3 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500" />
-                      
                       <div className="flex gap-2">
                         <button type="submit" className="flex-1 bg-indigo-600 text-white font-bold py-3 rounded-lg hover:bg-indigo-700">{editAddressId ? 'Update Address' : 'Save Address'}</button>
                         <button type="button" onClick={() => setShowAddressForm(false)} className="bg-gray-300 text-gray-800 font-bold py-3 px-6 rounded-lg hover:bg-gray-400">Cancel</button>
@@ -526,10 +482,7 @@ export default function CustomerApp() {
                   {myOrders.map(order => (
                     <div key={order._id} onClick={() => setSelectedOrder(order)} className="bg-white rounded-2xl shadow-sm border p-5 hover:shadow-md transition cursor-pointer">
                       <div className="flex justify-between items-center">
-                        <div>
-                           <p className="font-mono text-xs font-bold text-gray-400">{order.orderId}</p>
-                           <p className="text-sm font-bold text-gray-800 mt-1">{new Date(order.createdAt).toLocaleDateString()}</p>
-                        </div>
+                        <div><p className="font-mono text-xs font-bold text-gray-400">{order.orderId}</p><p className="text-sm font-bold text-gray-800 mt-1">{new Date(order.createdAt).toLocaleDateString()}</p></div>
                         <div className="text-right">
                            <span className={`text-[10px] uppercase font-bold px-2 py-1 rounded ${order.status.includes('Cancel') ? 'bg-red-100 text-red-800' : order.status.includes('Placed') ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}`}>{order.status}</span>
                            <p className="font-extrabold text-lg mt-1 text-gray-900">₹{order.totalAmount}</p>
