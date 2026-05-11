@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Package, Search, Plus, Trash2, LogOut, ShoppingCart, BarChart2, Briefcase } from 'lucide-react';
+import { Package, Search, Plus, Trash2, LogOut, ShoppingCart, BarChart2, Briefcase, Upload } from 'lucide-react';
 
 export default function RetailerApp() {
   const [activeTab, setActiveTab] = useState('inventory');
@@ -37,8 +37,8 @@ export default function RetailerApp() {
         axios.get(`${API_URL}/api/admin/master-products`, getAuth()),
         axios.get(`${API_URL}/api/auth/me`, getAuth())
       ]);
-      setProducts(prods.data); 
-      setMasterProducts(master.data); 
+      setProducts(prods.data || []); 
+      setMasterProducts(master.data || []); 
       if(user.data.bankDetails) setBankDetails(user.data.bankDetails);
     } catch (err) {}
   };
@@ -47,7 +47,7 @@ export default function RetailerApp() {
     try {
       const query = dateFilter.startDate && dateFilter.endDate ? `?startDate=${dateFilter.startDate}&endDate=${dateFilter.endDate}` : '';
       const res = await axios.get(`${API_URL}/api/orders/retailer-orders${query}`, getAuth());
-      setOrders(res.data);
+      setOrders(res.data || []);
     } catch (err) { setMessage('Failed to load orders.'); }
   };
 
@@ -72,6 +72,16 @@ export default function RetailerApp() {
       setSearchTerm(master.name);
       setFilteredMaster([]);
       setNewProduct({ ...newProduct, name: master.name, description: master.description, category: master.category, imageUrl: master.imageUrl });
+    }
+  };
+
+  // FRONTEND BASE64 IMAGE CONVERTER FOR RETAILERS
+  const handleRetailerImageUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => setNewProduct({ ...newProduct, imageUrl: reader.result });
+      reader.readAsDataURL(file);
     }
   };
 
@@ -128,7 +138,7 @@ export default function RetailerApp() {
       await axios.put(`${API_URL}/api/orders/${orderId}/suborder/${subOrderId}`, { action }, getAuth());
       setMessage(`Order ${action}ed successfully.`); 
       fetchOrders();
-      fetchData(); // Refresh UI instantly
+      fetchData(); // Refresh inventory instantly
       setTimeout(() => setMessage(''), 3000);
     } catch (err) { setMessage(`Failed to process order action.`); }
   };
@@ -182,7 +192,10 @@ export default function RetailerApp() {
                   {products.length === 0 && <tr><td colSpan="5" className="p-4 text-center text-gray-500">No products added yet.</td></tr>}
                   {products.map(product => (
                     <tr key={product._id} className="hover:bg-gray-50">
-                      <td className="p-3 border-b font-bold text-gray-800">{product.name}</td>
+                      <td className="p-3 border-b font-bold text-gray-800 flex items-center gap-3">
+                        <img src={product.imageUrl || 'https://via.placeholder.com/40'} alt={product.name} className="w-10 h-10 object-contain rounded border bg-white" />
+                        {product.name}
+                      </td>
                       <td className="p-3 border-b">
                         <span className={`px-2 py-1 rounded text-xs font-bold ${product.status === 'Approved' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>{product.status}</span>
                       </td>
@@ -223,7 +236,10 @@ export default function RetailerApp() {
                 {filteredMaster.length > 0 && (
                   <div className="absolute w-full mt-1 bg-white border rounded-lg shadow-xl max-h-48 overflow-y-auto z-20">
                     {filteredMaster.map(m => (
-                      <div key={m._id} onClick={() => handleMasterSelect(m)} className="p-3 hover:bg-emerald-50 cursor-pointer border-b font-bold text-gray-700">{m.name} ({m.category})</div>
+                      <div key={m._id} onClick={() => handleMasterSelect(m)} className="p-3 hover:bg-emerald-50 cursor-pointer border-b font-bold text-gray-700 flex items-center gap-3">
+                        <img src={m.imageUrl || 'https://via.placeholder.com/30'} alt="" className="w-8 h-8 object-contain rounded" />
+                        {m.name} ({m.category})
+                      </div>
                     ))}
                   </div>
                 )}
@@ -240,6 +256,15 @@ export default function RetailerApp() {
               <input type="text" placeholder="Product Name" required value={newProduct.name} onChange={(e) => setNewProduct({...newProduct, name: e.target.value})} disabled={!isCustomProduct && newProduct.name !== ''} className="p-3 border rounded-lg bg-gray-50 outline-none" />
               <input type="number" placeholder="Your Requested Price (₹)" required value={newProduct.retailerPrice} onChange={(e) => setNewProduct({...newProduct, retailerPrice: e.target.value})} className="p-3 border rounded-lg outline-none focus:ring-2 focus:ring-emerald-500" />
               <input type="number" placeholder="Initial Quantity" required value={newProduct.quantity} onChange={(e) => setNewProduct({...newProduct, quantity: e.target.value})} className="p-3 border rounded-lg outline-none focus:ring-2 focus:ring-emerald-500" />
+              
+              {/* RETAILER IMAGE UPLOAD (Only show if it is a custom product) */}
+              {isCustomProduct && (
+                <div className="p-2 border rounded-lg bg-white flex items-center gap-3">
+                  <Upload className="w-5 h-5 text-emerald-500 flex-shrink-0 ml-2" />
+                  <input type="file" accept="image/*" onChange={handleRetailerImageUpload} className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-bold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100" />
+                </div>
+              )}
+
               <button type="submit" className="md:col-span-2 bg-emerald-600 text-white font-bold py-3 rounded-lg hover:bg-emerald-700 shadow-md">Submit for Approval</button>
             </form>
           </div>
@@ -272,7 +297,6 @@ export default function RetailerApp() {
                      <ul className="space-y-1">
                        {order.subOrder.items.map((i, idx) => {
                          const qty = i.cartQty || i.quantity || 1;
-                         // FIX: Calculate using retailerPrice instead of the platform's markup price
                          const priceToUse = i.retailerPrice || i.price;
                          return (
                            <li key={idx} className="font-bold text-gray-800 flex justify-between">
@@ -335,7 +359,6 @@ export default function RetailerApp() {
                   <p className="text-4xl font-extrabold text-indigo-600">
                     ₹{orders.reduce((sum, order) => sum + order.subOrder.items.reduce((itemSum, item) => {
                       const qty = item.cartQty || item.quantity || 1;
-                      // FIX: Summarize based on the retailer's original requested price!
                       const priceToUse = item.retailerPrice || item.price;
                       return itemSum + (priceToUse * qty);
                     }, 0), 0)}
