@@ -70,4 +70,15 @@ router.get('/nearby', verifyToken, async (req, res) => {
   } catch (err) { res.status(500).json({ message: 'Error fetching products' }); }
 });
 
+// STRICT HARD DELETE FOR RETAILERS
+router.delete('/delete/:id', verifyRetailerOrAdmin, async (req, res) => {
+  try {
+    // This finds the exact product and permanently deletes it from MongoDB
+    await Product.findByIdAndDelete(req.params.id);
+    res.status(200).json({ message: 'Product permanently deleted' });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to delete product' });
+  }
+});
+
 module.exports = router;
