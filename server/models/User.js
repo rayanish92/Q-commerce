@@ -1,31 +1,40 @@
 const mongoose = require('mongoose');
 
-const UserSchema = new mongoose.Schema({
+const userSchema = new mongoose.Schema({
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
-  contactNumber: { type: String, default: '' },
-  role: { type: String, enum: ['admin', 'retailer', 'customer', 'delivery_agent'], default: 'customer' },
-  location: { type: { type: String, default: 'Point' }, coordinates: { type: [Number], default: [0, 0] } },
-  shopName: { type: String, default: '' },
-  retailerCategory: { type: String, default: '' },
-  isAvailable: { type: Boolean, default: true },
+  role: { type: String, enum: ['customer', 'retailer', 'delivery_agent', 'admin'], default: 'customer' },
+  contactNumber: { type: String },
   
-  // NEW: Customer Saved Addresses
-  addresses: [{ 
-    label: String, 
-    address: String, 
-    lat: Number, 
-    lng: Number 
+  // Retailer Specific
+  shopName: { type: String },
+  retailerCategory: { type: String },
+  location: {
+    type: { type: String, enum: ['Point'], default: 'Point' },
+    coordinates: { type: [Number], default: [0, 0] } // [longitude, latitude]
+  },
+  
+  // CRITICAL FIX: Explicitly defined all the new address fields so MongoDB stops deleting them!
+  addresses: [{
+    label: String,
+    contactName: String,
+    phoneNumber: String,
+    address: String,
+    landmark: String,
+    pincode: String,
+    lat: Number,
+    lng: Number
   }],
   
-  // NEW: Retailer Settlement Bank Details
   bankDetails: {
-    accountName: { type: String, default: '' },
-    accountNumber: { type: String, default: '' },
-    ifscCode: { type: String, default: '' }
+    accountName: String,
+    accountNumber: String,
+    ifscCode: String
   }
 }, { timestamps: true });
 
-UserSchema.index({ location: "2dsphere" });
-module.exports = mongoose.model('User', UserSchema);
+// Required for Geospatial (Distance) Queries
+userSchema.index({ location: '2dsphere' });
+
+module.exports = mongoose.model('User', userSchema);
