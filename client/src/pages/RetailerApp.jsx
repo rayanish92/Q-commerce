@@ -9,7 +9,7 @@ export default function RetailerApp() {
   const [orders, setOrders] = useState([]);
   const [message, setMessage] = useState('');
   const [shopName, setShopName] = useState('');
-  const [retailerUser, setRetailerUser] = useState(null); // Save user to extract categories
+  const [retailerUser, setRetailerUser] = useState(null);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [filteredMaster, setFilteredMaster] = useState([]);
@@ -22,11 +22,25 @@ export default function RetailerApp() {
   const API_URL = import.meta.env.VITE_API_URL;
   const getAuth = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
 
+  // ---------------------------------------------------------
+  // REAL-TIME AUTO-SYNC (Polling every 5 seconds)
+  // ---------------------------------------------------------
   useEffect(() => {
     const token = localStorage.getItem('token');
-    if (token) setShopName(JSON.parse(atob(token.split('.')[1])).user.shopName);
-    fetchData(); fetchOrders();
-  }, []);
+    if (token) setShopName(JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).user.shopName);
+    
+    // Initial Load
+    fetchData(); 
+    fetchOrders();
+
+    // Background Auto-Sync
+    const interval = setInterval(() => {
+      fetchOrders();
+      if(activeTab === 'inventory') fetchData(); // Only sync inventory if looking at it
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [dateFilter, activeTab]);
 
   const fetchData = async () => {
     try {
@@ -47,12 +61,9 @@ export default function RetailerApp() {
       const query = dateFilter.startDate && dateFilter.endDate ? `?startDate=${dateFilter.startDate}&endDate=${dateFilter.endDate}` : '';
       const res = await axios.get(`${API_URL}/api/orders/retailer-orders${query}`, getAuth());
       setOrders(res.data || []);
-    } catch (err) { setMessage('Failed to load orders.'); }
+    } catch (err) {}
   };
 
-  useEffect(() => { if (dateFilter.startDate && dateFilter.endDate) fetchOrders(); }, [dateFilter]);
-
-  // DYNAMIC CATEGORIES FOR RETAILER
   const baseCategories = ['Groceries', 'Vegetables', 'Fruits', 'Dairy', 'Snacks', 'Beverages', 'Pharmacy', 'Meat & Seafood', 'Bakery', 'Personal Care', 'Home & Kitchen'];
   const dynamicCategories = Array.from(new Set([
     ...baseCategories,
@@ -118,9 +129,20 @@ export default function RetailerApp() {
     } catch (err) {}
   };
 
+  // CRITICAL FIX: Optimistic UI Deletion
   const handleDelete = async (id) => {
-    if (!window.confirm('Request admin to delete this product?')) return;
-    try { await axios.delete(`${API_URL}/api/products/delete/${id}`, getAuth()); fetchData(); } catch (err) {}
+    if (!window.confirm('Are you sure you want to permanently delete this product?')) return;
+    
+    // 1. Instantly remove from the screen for the user
+    setProducts(products.filter(p => p._id !== id));
+    
+    // 2. Tell the database to delete it
+    try { 
+      await axios.delete(`${API_URL}/api/products/delete/${id}`, getAuth()); 
+    } catch (err) {
+      alert("Failed to delete product from database.");
+      fetchData(); // If it fails, refresh to bring it back
+    }
   };
 
   const handleUpdateBank = async (e) => {
@@ -149,7 +171,7 @@ export default function RetailerApp() {
         <div className="max-w-6xl mx-auto flex overflow-x-auto hide-scrollbar">
           <button onClick={()=>{setActiveTab('inventory'); fetchData();}} className={`flex items-center gap-2 px-6 py-4 font-bold whitespace-nowrap ${activeTab==='inventory'?'text-emerald-600 border-b-4 border-emerald-600':'text-gray-500'}`}><Package className="w-5 h-5"/> Inventory</button>
           <button onClick={()=>setActiveTab('add')} className={`flex items-center gap-2 px-6 py-4 font-bold whitespace-nowrap ${activeTab==='add'?'text-emerald-600 border-b-4 border-emerald-600':'text-gray-500'}`}><Plus className="w-5 h-5"/> Add Product</button>
-          <button onClick={()=>{setActiveTab('orders'); fetchOrders();}} className={`flex items-center gap-2 px-6 py-4 font-bold whitespace-nowrap ${activeTab==='orders'?'text-emerald-600 border-b-4 border-emerald-600':'text-gray-500'}`}><ShoppingCart className="w-5 h-5"/> Orders</button>
+          <button onClick={()=>{setActiveTab('orders'); fetchOrders();}} className={`flex items-center gap-2 px-6 py-4 font-bold whitespace-nowrap ${activeTab==='orders'?'text-emerald-600 border-b-4 border-emerald-600':'text-gray-500'}`}><ShoppingCart className="w-5 h-5"/> Orders <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse ml-1"></div></button>
           <button onClick={()=>setActiveTab('bank')} className={`flex items-center gap-2 px-6 py-4 font-bold whitespace-nowrap ${activeTab==='bank'?'text-emerald-600 border-b-4 border-emerald-600':'text-gray-500'}`}><Briefcase className="w-5 h-5"/> Settlements</button>
           <button onClick={()=>setActiveTab('summary')} className={`flex items-center gap-2 px-6 py-4 font-bold whitespace-nowrap ${activeTab==='summary'?'text-emerald-600 border-b-4 border-emerald-600':'text-gray-500'}`}><BarChart2 className="w-5 h-5"/> Summary</button>
         </div>
@@ -175,9 +197,8 @@ export default function RetailerApp() {
                         <div className="flex items-center gap-2"><button onClick={() => handleUpdateQuantity(product._id, product.quantity - 1)} className="bg-gray-200 px-2 rounded font-bold hover:bg-gray-300">-</button><span className="w-6 text-center font-bold">{product.quantity}</span><button onClick={() => handleUpdateQuantity(product._id, product.quantity + 1)} className="bg-gray-200 px-2 rounded font-bold hover:bg-gray-300">+</button></div>
                       </td>
                       <td className="p-3 border-b flex gap-2">
-                        {product.status === 'Approved' && (
-                          <><button onClick={() => handleRequestPriceChange(product._id)} className="bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs font-bold hover:bg-blue-200">Change Price</button><button onClick={() => handleDelete(product._id)} className="text-red-500 hover:bg-red-50 p-1 rounded"><Trash2 className="w-4 h-4"/></button></>
-                        )}
+                        {product.status === 'Approved' && <button onClick={() => handleRequestPriceChange(product._id)} className="bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs font-bold hover:bg-blue-200">Change Price</button>}
+                        <button onClick={() => handleDelete(product._id)} className="text-red-500 hover:bg-red-50 p-1 rounded"><Trash2 className="w-4 h-4"/></button>
                       </td>
                     </tr>
                   ))}
@@ -239,7 +260,6 @@ export default function RetailerApp() {
           </div>
         )}
 
-        {/* ... (Orders, Bank, and Summary tabs logic remain identical) ... */}
         {activeTab === 'orders' && (
           <div className="bg-white p-6 rounded-xl shadow-sm border border-emerald-100">
             <h2 className="text-xl font-bold mb-6">Action Required: Orders</h2>
@@ -319,7 +339,6 @@ export default function RetailerApp() {
             </div>
           </div>
         )}
-
       </main>
     </div>
   );
