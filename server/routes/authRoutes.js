@@ -115,4 +115,18 @@ router.put('/profile', verifyToken, async (req, res) => {
     res.json(user);
   } catch (err) { res.status(500).json({ message: 'Error updating profile' }); }
 });
+
+// EDIT ADDRESS
+router.put('/address/:id', verifyToken, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    const addressIndex = user.addresses.findIndex(a => a._id.toString() === req.params.id);
+    if (addressIndex !== -1) {
+      user.addresses[addressIndex] = { ...user.addresses[addressIndex].toObject(), ...req.body };
+      await user.save();
+    }
+    res.json(user.addresses);
+  } catch (err) { res.status(500).json({ message: 'Error updating address' }); }
+});
+
 module.exports = router;
