@@ -28,18 +28,23 @@ export default function AdminApp() {
     if (activeTab === 'orders') fetchGlobalOrders();
   }, [activeTab, orderFilter]);
 
-  const fetchUsers = async () => { try { setUsers((await axios.get(`${API_URL}/api/admin/users`, getAuth())).data || []); } catch (err) {} };
-  const fetchMasterProducts = async () => { try { setMasterProducts((await axios.get(`${API_URL}/api/admin/master-products`, getAuth())).data || []); } catch (err) {} };
+  const fetchUsers = async () => { try { setUsers((await axios.get(`${API_URL}/api/admin/users`, getAuth())).data || []); } catch (err) { setUsers([]); } };
+  const fetchMasterProducts = async () => { try { setMasterProducts((await axios.get(`${API_URL}/api/admin/master-products`, getAuth())).data || []); } catch (err) { setMasterProducts([]); } };
+  
+  // FIX: White Screen Crash Protection for Approvals
   const fetchApprovals = async () => { 
     try { 
       const res = await axios.get(`${API_URL}/api/admin/pending-approvals`, getAuth()); 
-      setApprovals(res.data || []);
-      const prices = {}; (res.data||[]).forEach(p => prices[p._id] = p.retailerPrice); setApprovalPrices(prices);
-    } catch (err) {} 
+      const safeData = Array.isArray(res.data) ? res.data : [];
+      setApprovals(safeData);
+      const prices = {}; 
+      safeData.forEach(p => prices[p._id] = p.retailerPrice); 
+      setApprovalPrices(prices);
+    } catch (err) { setApprovals([]); } 
   };
-  const fetchGlobalOrders = async () => { try { setGlobalOrders((await axios.get(`${API_URL}/api/orders/all-orders?${new URLSearchParams(orderFilter).toString()}`, getAuth())).data || []); } catch (err) {} };
+  
+  const fetchGlobalOrders = async () => { try { setGlobalOrders((await axios.get(`${API_URL}/api/orders/all-orders?${new URLSearchParams(orderFilter).toString()}`, getAuth())).data || []); } catch (err) { setGlobalOrders([]); } };
 
-  // FRONTEND BASE64 IMAGE CONVERTER
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -69,16 +74,18 @@ export default function AdminApp() {
   };
 
   const groupedOrders = {};
-  globalOrders.forEach(order => {
-    if (order.subOrders) order.subOrders.forEach(sub => {
-      const rId = sub.retailerId?._id || 'unassigned';
-      if (!groupedOrders[rId]) groupedOrders[rId] = { shopName: sub.retailerId?.shopName || 'Unknown', subOrders: [], totalOurPrice: 0, totalTheirPrice: 0 };
-      let ourPrice = 0; let theirPrice = 0;
-      if (sub.items) sub.items.forEach(item => { const qty = item.cartQty || 1; ourPrice += (item.price || 0) * qty; theirPrice += (item.retailerPrice || item.price || 0) * qty; });
-      groupedOrders[rId].totalOurPrice += ourPrice; groupedOrders[rId].totalTheirPrice += theirPrice;
-      groupedOrders[rId].subOrders.push({ parentOrderId: order.orderId, date: order.createdAt, customerName: order.customerId?.name || 'Unknown', status: sub.status, items: sub.items || [], ourPrice, theirPrice });
+  if (Array.isArray(globalOrders)) {
+    globalOrders.forEach(order => {
+      if (order.subOrders) order.subOrders.forEach(sub => {
+        const rId = sub.retailerId?._id || 'unassigned';
+        if (!groupedOrders[rId]) groupedOrders[rId] = { shopName: sub.retailerId?.shopName || 'Unknown', subOrders: [], totalOurPrice: 0, totalTheirPrice: 0 };
+        let ourPrice = 0; let theirPrice = 0;
+        if (sub.items) sub.items.forEach(item => { const qty = item.cartQty || 1; ourPrice += (item.price || 0) * qty; theirPrice += (item.retailerPrice || item.price || 0) * qty; });
+        groupedOrders[rId].totalOurPrice += ourPrice; groupedOrders[rId].totalTheirPrice += theirPrice;
+        groupedOrders[rId].subOrders.push({ parentOrderId: order.orderId, date: order.createdAt, customerName: order.customerId?.name || 'Unknown', status: sub.status, items: sub.items || [], ourPrice, theirPrice });
+      });
     });
-  });
+  }
 
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col md:flex-row relative">
@@ -120,7 +127,7 @@ export default function AdminApp() {
                                <td className="p-3 border-b font-bold text-gray-700">{so.customerName}</td>
                                <td className="p-3 border-b text-gray-600">{so.items.map(i => `${i.cartQty||1}x ${i.name}`).join(', ')}</td>
                                <td className="p-3 border-b text-blue-600 font-bold">₹{so.theirPrice}</td><td className="p-3 border-b text-green-600 font-bold">₹{so.ourPrice}</td>
-                               <td className="p-3 border-b"><span className={`px-2 py-1 rounded-full text-[10px] uppercase font-bold tracking-wider ${so.status==='Accepted'?'bg-green-100 text-green-700':so.status==='Pending'?'bg-yellow-100 text-yellow-700':'bg-red-100 text-red-700'}`}>{so.status}</span></td>
+                               <td className="p-3 border-b"><span className={`px-2 py-1 rounded-full text-[10px] uppercase font-bold tracking-wider ${so.status==='Accepted'?'bg-green-100 text-green-700':so.status==='Pending'?'bg-yellow-100 text-yellow-700':so.status.includes('Cancel')?'bg-red-100 text-red-700':'bg-gray-100'}`}>{so.status}</span></td>
                             </tr>
                          ))}
                        </tbody>
@@ -139,17 +146,10 @@ export default function AdminApp() {
               <input type="text" placeholder="Product Name" required value={masterForm.name} onChange={(e) => setMasterForm({...masterForm, name: e.target.value})} className="p-3 border rounded-lg outline-none" />
               <select value={masterForm.category} onChange={(e) => setMasterForm({...masterForm, category: e.target.value})} className="p-3 border rounded-lg bg-white outline-none"><option value="Groceries">Groceries</option><option value="Vegetables">Vegetables</option><option value="Dairy">Dairy</option><option value="Snacks">Snacks</option></select>
               <input type="text" placeholder="Description" value={masterForm.description} onChange={(e) => setMasterForm({...masterForm, description: e.target.value})} className="p-3 border rounded-lg outline-none" />
-              
-              {/* IMAGE UPLOAD FILE INPUT */}
-              <div className="p-2 border rounded-lg bg-white flex items-center gap-3">
-                <Upload className="w-5 h-5 text-gray-400" />
-                <input type="file" accept="image/*" onChange={handleImageUpload} className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-bold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
-              </div>
-              
+              <div className="p-2 border rounded-lg bg-white flex items-center gap-3"><Upload className="w-5 h-5 text-gray-400" /><input type="file" accept="image/*" onChange={handleImageUpload} className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-bold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" /></div>
               <button type="submit" className="md:col-span-2 bg-green-600 text-white font-bold py-3 rounded-lg hover:bg-green-700">Save to Master DB</button>
             </form>
 
-            {/* MASTER LIST DISPLAY */}
             <h3 className="text-lg font-bold mb-4 text-gray-700">Current Master Catalog</h3>
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
@@ -169,7 +169,32 @@ export default function AdminApp() {
           </div>
         )}
 
-        {/* ... (Approvals Tab logic remains exactly the same as previous) ... */}
+        {activeTab === 'approvals' && (
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+            <h2 className="text-2xl font-bold mb-6">Pending Actions</h2>
+            {approvals.length === 0 ? <p className="text-gray-500 font-bold p-6 text-center border rounded-xl">No pending approvals.</p> : (
+              <div className="space-y-4">
+                {approvals.map(product => (
+                  <div key={product._id} className="flex flex-col md:flex-row items-center justify-between p-4 rounded-lg border bg-yellow-50 border-yellow-100">
+                    <div>
+                      <span className="bg-yellow-500 px-2 py-1 rounded text-[10px] uppercase tracking-wider font-bold text-white">{product.status}</span>
+                      <h3 className="font-bold text-lg mt-2 text-gray-800">{product.name}</h3>
+                      <p className="text-sm text-gray-600">Shop: <strong>{product.retailerId?.shopName}</strong></p>
+                      <p className="text-sm text-gray-600 mt-1">Requested Price: <strong className="text-blue-600">₹{product.retailerPrice}</strong></p>
+                    </div>
+                    <div className="flex flex-col gap-2 mt-4 md:mt-0 items-end">
+                      <div className="flex gap-2 items-end">
+                        <div><label className="text-[10px] font-bold uppercase text-gray-500 block mb-1">Set Your Selling Price</label><input type="number" value={approvalPrices[product._id] || ''} onChange={(e) => setApprovalPrices({...approvalPrices, [product._id]: e.target.value})} className="border-2 border-indigo-200 p-2 rounded-lg w-28 text-center font-bold text-indigo-700 outline-none focus:border-indigo-500" placeholder="₹" /></div>
+                        <button onClick={() => handleApproval(product._id, 'approve')} className="bg-green-600 text-white px-4 py-2 rounded-lg font-bold h-11 hover:bg-green-700 shadow-sm">Approve</button>
+                        <button onClick={() => handleApproval(product._id, 'reject')} className="bg-gray-800 text-white px-4 py-2 rounded-lg font-bold h-11 hover:bg-black shadow-sm">Reject</button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {activeTab === 'users' && (
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
@@ -177,16 +202,13 @@ export default function AdminApp() {
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">
-                    <th className="p-3 border-b rounded-tl-lg">Name</th><th className="p-3 border-b">Role</th><th className="p-3 border-b">Shop Name</th><th className="p-3 border-b">Contact</th><th className="p-3 border-b">Email</th>
-                  </tr>
+                  <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider"><th className="p-3 border-b rounded-tl-lg">Name</th><th className="p-3 border-b">Role</th><th className="p-3 border-b">Shop Name</th><th className="p-3 border-b">Contact</th><th className="p-3 border-b">Email</th></tr>
                 </thead>
                 <tbody>
                   {users.map(user => (
                     <tr key={user._id} className="hover:bg-gray-50 text-sm">
                       <td className="p-3 border-b font-bold text-gray-700">{user.name}</td>
-                      {/* ADDED ROLE COLUMN */}
-                      <td className="p-3 border-b"><span className="bg-gray-200 text-gray-700 px-2 py-1 rounded text-xs font-bold uppercase">{user.role.replace('_', ' ')}</span></td>
+                      <td className="p-3 border-b"><span className="bg-gray-200 text-gray-700 px-2 py-1 rounded text-[10px] font-bold uppercase">{user.role.replace('_', ' ')}</span></td>
                       <td className="p-3 border-b text-indigo-700 font-bold">{user.shopName || '-'}</td>
                       <td className="p-3 border-b text-gray-600">{user.contactNumber || '-'}</td>
                       <td className="p-3 border-b text-gray-500">{user.email}</td>
