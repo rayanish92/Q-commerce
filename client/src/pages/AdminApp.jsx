@@ -25,12 +25,22 @@ export default function AdminApp() {
   const API_URL = import.meta.env.VITE_API_URL;
   const getAuth = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
 
-  useEffect(() => {
+ useEffect(() => {
     setMessage('');
+    
+    // Initial fetch
     if (activeTab === 'users' || activeTab === 'agents' || activeTab === 'staff') fetchUsers();
     if (activeTab === 'catalog') fetchMasterProducts();
     if (activeTab === 'approvals') fetchApprovals();
     if (activeTab === 'orders' || activeTab === 'summary') fetchGlobalOrders();
+
+    // Background Auto-Sync every 5 seconds!
+    const interval = setInterval(() => {
+      if (activeTab === 'orders' || activeTab === 'summary') fetchGlobalOrders();
+      if (activeTab === 'approvals') fetchApprovals();
+    }, 5000);
+
+    return () => clearInterval(interval);
   }, [activeTab, orderFilter]);
 
   const fetchUsers = async () => { try { setUsers((await axios.get(`${API_URL}/api/admin/users`, getAuth())).data || []); } catch (err) { setUsers([]); } };
