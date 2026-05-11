@@ -18,11 +18,10 @@ const findNearestRetailerForItems = async (items, lng, lat, excludeRetailerIds =
 
   for (let item of items) {
     let allocated = false;
-    
-    // SAFE FALLBACK: Works with both old and new cart systems
     const requestedQty = Number(item.cartQty || item.quantity || 1);
 
     for (let retailer of nearbyRetailers) {
+      // Step 1: Check if the retailer has enough stock
       const productRecord = await Product.findOne({ 
         retailerId: retailer._id, 
         name: item.name, 
@@ -33,13 +32,11 @@ const findNearestRetailerForItems = async (items, lng, lat, excludeRetailerIds =
       if (productRecord) {
         if (!allocations[retailer._id]) allocations[retailer._id] = [];
         
-        // Pass the exact deducted amount forward so we know what to refund if rejected
-        allocations[retailer._id].push({ ...item, actualDeducted: requestedQty });
+        // Step 2: Assign the order to this retailer
+        allocations[retailer._id].push(item);
         
-        // ATOMIC DEDUCTION: Subtracts stock instantly at the database level to prevent double-selling
-        await Product.findByIdAndUpdate(productRecord._id, {
-          $inc: { quantity: -requestedQty }
-        });
+        // CRITICAL FIX: We NO LONGER deduct stock here. 
+        // We only check if it exists, leaving the actual inventory untouched until Acceptance.
         
         allocated = true;
         break; 
@@ -117,19 +114,23 @@ router.put('/:orderId/suborder/:subOrderId', verifyRetailerOrAdmin, async (req, 
       const allResolved = order.subOrders.every(s => s.status !== 'Pending');
       if (allResolved) order.status = 'Accepted by Store';
 
-    } else if (action === 'Reject') {
-      subOrder.status = 'Rejected';
-      
-      // ATOMIC REFUND: Safely adds the exact quantity back to the retailer's inventory
+      // CRITICAL FIX: Stock is NOW deducted ONLY when the retailer clicks Accept.
+      // This uses a secure, atomic database operation to prevent mathematical errors.
       for (let item of subOrder.items) {
-        const qtyToRestore = Number(item.actualDeducted || item.cartQty || item.quantity || 1);
+        const qtyToDeduct = Number(item.cartQty || item.quantity || 1);
         await Product.findOneAndUpdate(
           { retailerId: req.user.id, name: item.name },
-          { $inc: { quantity: qtyToRestore } }
+          { $inc: { quantity: -qtyToDeduct } } // Subtracts the quantity
         );
       }
 
-      // AUTO-REASSIGNMENT: Look for the next nearest retailer
+    } else if (action === 'Reject') {
+      subOrder.status = 'Rejected';
+      
+      // Since we never deducted the stock during routing, we do NOT need to refund anything!
+      // The inventory stays exactly as it was.
+
+      // AUTO-REASSIGNMENT: Look for the next nearest retailer to fulfill this rejected order
       const [lng, lat] = order.location.coordinates;
       const { allocations } = await findNearestRetailerForItems(subOrder.items, lng, lat, [req.user.id]);
       
