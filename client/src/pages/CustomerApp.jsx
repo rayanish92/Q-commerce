@@ -53,7 +53,15 @@ export default function CustomerApp() {
   useEffect(() => { fetchUserProfile(); detectLocation(); }, []);
   useEffect(() => {
     if (activeTab === 'home') fetchNearbyProducts();
-    if (activeTab === 'account' && accountSubTab === 'orders') { fetchMyOrders(); setSelectedOrder(null); }
+    if (activeTab === 'account' && accountSubTab === 'orders') fetchMyOrders();
+    
+    // Background Auto-Sync every 5 seconds!
+    const interval = setInterval(() => {
+      if (activeTab === 'home') fetchNearbyProducts();
+      if (activeTab === 'account' && accountSubTab === 'orders') fetchMyOrders();
+    }, 5000);
+
+    return () => clearInterval(interval);
   }, [category, activeTab, testMode, location.lat, location.lng, selectedAddress]);
 
   useEffect(() => {
