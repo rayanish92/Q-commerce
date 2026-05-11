@@ -3,15 +3,39 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    
-    <!-- PWA & Mobile Native Feel Meta Tags -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <meta name="theme-color" content="#4f46e5" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <link rel="apple-touch-icon" href="/pwa-192x192.png" />
     
-    <title>QuickComm</title>
+    <!-- THE SMART PWA INJECTOR -->
+    <script>
+      const path = window.location.pathname;
+      let manifest = '/manifest-customer.json';
+      let title = 'QuickComm';
+      let themeColor = '#4f46e5'; // Indigo
+
+      if (path.startsWith('/retailer')) { 
+        manifest = '/manifest-retailer.json'; 
+        title = 'Retailer Desk'; 
+        themeColor = '#059669'; // Emerald Green
+      } 
+      else if (path.startsWith('/admin')) { 
+        manifest = '/manifest-admin.json'; 
+        title = 'Admin Core'; 
+        themeColor = '#111827'; // Dark Gray/Black
+      } 
+      else if (path.startsWith('/agent')) { 
+        manifest = '/manifest-agent.json'; 
+        title = 'Delivery Fleet'; 
+        themeColor = '#d946ef'; // Fuchsia
+      }
+
+      // Dynamically inject the correct PWA file into the phone's browser
+      document.write(`<link rel="manifest" href="${manifest}">`);
+      document.write(`<meta name="theme-color" content="${themeColor}">`);
+      document.title = title;
+    </script>
   </head>
   <body>
     <div id="root"></div>
