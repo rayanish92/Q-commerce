@@ -76,4 +76,19 @@ router.delete('/approve-deletion/:id', verifyAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ message: 'Error processing deletion' }); }
 });
 
+// UPDATE MASTER PRODUCT
+router.put('/master-products/:id', verifyAdmin, async (req, res) => {
+  try {
+    // Note: Ensure 'MasterProduct' matches exactly what you named your model at the top of your file
+    const updatedProduct = await MasterProduct.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true }
+    );
+    res.status(200).json(updatedProduct);
+  } catch (err) {
+    res.status(500).json({ message: 'Error updating master product' });
+  }
+});
+
 module.exports = router;
