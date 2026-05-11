@@ -7,28 +7,10 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
-      manifest: {
-        name: 'Quick Commerce Platform',
-        short_name: 'QuickComm',
-        description: 'Hyper-local delivery network',
-        theme_color: '#4f46e5', // Matches your Indigo-600 headers
-        background_color: '#f9fafb',
-        display: 'standalone', // This hides the browser URL bar!
-        orientation: 'portrait',
-        icons: [
-          {
-            src: '/pwa-192x192.png',
-            sizes: '192x192',
-            type: 'image/png'
-          },
-          {
-            src: '/pwa-512x512.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'any maskable'
-          }
-        ]
+      injectRegister: 'auto',
+      manifest: false, // CRITICAL: We are turning this off so we can inject our 4 dynamic manifests!
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,json}']
       }
     })
   ],
