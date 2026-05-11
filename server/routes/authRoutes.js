@@ -108,4 +108,11 @@ router.put('/bank', verifyRetailerOrAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ message: 'Error saving bank details' }); }
 });
 
+// Update User Profile (Phone Number)
+router.put('/profile', verifyToken, async (req, res) => {
+  try {
+    const user = await User.findByIdAndUpdate(req.user.id, { contactNumber: req.body.contactNumber }, { new: true });
+    res.json(user);
+  } catch (err) { res.status(500).json({ message: 'Error updating profile' }); }
+});
 module.exports = router;
