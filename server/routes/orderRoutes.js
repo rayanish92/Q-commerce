@@ -6,7 +6,14 @@ const { verifyRetailerOrAdmin, verifyToken, verifyAdmin } = require('../middlewa
 
 const router = express.Router();
 
-// SMART ROUTING ENGINE
+// Helper: Haversine Distance Formula (calculates KM between two GPS coordinates)
+const calcDist = (lat1, lon1, lat2, lon2) => {
+  const p = 0.017453292519943295;
+  const c = Math.cos;
+  const a = 0.5 - c((lat2 - lat1) * p)/2 + c(lat1 * p) * c(lat2 * p) * (1 - c((lon2 - lon1) * p))/2;
+  return 12742 * Math.asin(Math.sqrt(a));
+};
+
 const findNearestRetailerForItems = async (items, lng, lat, excludeRetailerIds = []) => {
   const nearbyRetailers = await User.find({ 
     role: 'retailer', 
@@ -21,25 +28,11 @@ const findNearestRetailerForItems = async (items, lng, lat, excludeRetailerIds =
     const requestedQty = Number(item.cartQty || item.quantity || 1);
 
     for (let retailer of nearbyRetailers) {
-      // Step 1: Check if the retailer has enough stock
-      const productRecord = await Product.findOne({ 
-        retailerId: retailer._id, 
-        name: item.name, 
-        status: 'Approved', 
-        quantity: { $gte: requestedQty } 
-      });
-
+      const productRecord = await Product.findOne({ retailerId: retailer._id, name: item.name, status: 'Approved', quantity: { $gte: requestedQty } });
       if (productRecord) {
         if (!allocations[retailer._id]) allocations[retailer._id] = [];
-        
-        // Step 2: Assign the order to this retailer
         allocations[retailer._id].push(item);
-        
-        // CRITICAL FIX: We NO LONGER deduct stock here. 
-        // We only check if it exists, leaving the actual inventory untouched until Acceptance.
-        
-        allocated = true;
-        break; 
+        allocated = true; break; 
       }
     }
     if (!allocated) unallocated.push(item);
@@ -47,20 +40,44 @@ const findNearestRetailerForItems = async (items, lng, lat, excludeRetailerIds =
   return { allocations, unallocated };
 };
 
-// 1. CUSTOMER PLACES ORDER
+// DYNAMIC FEE ESTIMATOR
+router.post('/estimate-fee', verifyToken, async (req, res) => {
+  try {
+    const { items, lat, lng } = req.body;
+    const { allocations } = await findNearestRetailerForItems(items, lng, lat, []);
+    
+    if (Object.keys(allocations).length === 0) return res.json({ fee: 0, possible: false });
+    
+    let maxDist = 0;
+    for (const rId of Object.keys(allocations)) {
+       const retailer = await User.findById(rId);
+       if (retailer && retailer.location) {
+         const d = calcDist(lat, lng, retailer.location.coordinates[1], retailer.location.coordinates[0]);
+         if (d > maxDist) maxDist = d;
+       }
+    }
+    
+    let fee = 25; // Base fee for 0-3km
+    if (maxDist > 3) fee += Math.ceil(maxDist - 3) * 1; // +1 Rupee per extra KM
+    
+    res.json({ fee, possible: true });
+  } catch(err) { res.status(500).json({fee: 25, possible: false}); }
+});
+
 router.post('/create', verifyToken, async (req, res) => {
   try {
     const { items, totalAmount, paymentMethod, deliveryAddress, lat, lng } = req.body;
     const { allocations, unallocated } = await findNearestRetailerForItems(items, lng, lat, []);
     
-    if (Object.keys(allocations).length === 0) {
-      return res.status(400).json({ message: 'Items not available nearby.' });
-    }
-
     let subOrders = [];
     for (const [retailerId, retailItems] of Object.entries(allocations)) {
       subOrders.push({ retailerId, items: retailItems, status: 'Pending' });
     }
+
+    // Determine precise status based on allocations
+    let finalStatus = 'Order Placed';
+    if (unallocated.length > 0 && subOrders.length > 0) finalStatus = 'Partially Placed';
+    if (subOrders.length === 0) finalStatus = 'Cancelled - No Nearby Stock';
 
     const newOrder = new Order({
       orderId: `ORD-${Date.now().toString().slice(-6)}`,
@@ -68,41 +85,38 @@ router.post('/create', verifyToken, async (req, res) => {
       totalAmount, paymentMethod, deliveryAddress,
       location: { type: 'Point', coordinates: [lng, lat] },
       subOrders, 
-      status: unallocated.length > 0 ? 'Partially Placed' : 'Order Placed'
+      status: finalStatus
     });
     
     await newOrder.save();
+    
+    if (finalStatus.includes('Cancelled')) {
+      return res.status(400).json({ message: 'Order Cancelled: Items not available nearby.', order: newOrder });
+    }
+
     res.status(201).json({ order: newOrder, unallocated });
   } catch (err) { res.status(500).json({ message: 'Failed to place order' }); }
 });
 
-// 2. CUSTOMER FETCHES ORDERS
 router.get('/my-orders', verifyToken, async (req, res) => {
   try { res.status(200).json(await Order.find({ customerId: req.user.id }).sort({ createdAt: -1 })); } 
   catch (err) { res.status(500).json({ message: 'Error fetching orders' }); }
 });
 
-// 3. RETAILER FETCHES THEIR SUB-ORDERS
 router.get('/retailer-orders', verifyRetailerOrAdmin, async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
     let matchQuery = { "subOrders.retailerId": req.user.id };
-
-    if (startDate && endDate) {
-      matchQuery.createdAt = { $gte: new Date(startDate), $lte: new Date(new Date(endDate).setHours(23, 59, 59)) };
-    }
-
+    if (startDate && endDate) matchQuery.createdAt = { $gte: new Date(startDate), $lte: new Date(new Date(endDate).setHours(23, 59, 59)) };
     const orders = await Order.find(matchQuery).sort({ createdAt: -1 });
     const filteredOrders = orders.map(order => ({
       _id: order._id, orderId: order.orderId, createdAt: order.createdAt, deliveryAddress: order.deliveryAddress,
       subOrder: order.subOrders.find(sub => sub.retailerId.toString() === req.user.id)
     })).filter(o => o.subOrder);
-    
     res.status(200).json(filteredOrders);
   } catch (err) { res.status(500).json({ message: 'Error fetching orders' }); }
 });
 
-// 4. RETAILER ACCEPTS OR REJECTS
 router.put('/:orderId/suborder/:subOrderId', verifyRetailerOrAdmin, async (req, res) => {
   try {
     const { action } = req.body;
@@ -114,23 +128,12 @@ router.put('/:orderId/suborder/:subOrderId', verifyRetailerOrAdmin, async (req, 
       const allResolved = order.subOrders.every(s => s.status !== 'Pending');
       if (allResolved) order.status = 'Accepted by Store';
 
-      // CRITICAL FIX: Stock is NOW deducted ONLY when the retailer clicks Accept.
-      // This uses a secure, atomic database operation to prevent mathematical errors.
       for (let item of subOrder.items) {
         const qtyToDeduct = Number(item.cartQty || item.quantity || 1);
-        await Product.findOneAndUpdate(
-          { retailerId: req.user.id, name: item.name },
-          { $inc: { quantity: -qtyToDeduct } } // Subtracts the quantity
-        );
+        await Product.findOneAndUpdate({ retailerId: req.user.id, name: item.name }, { $inc: { quantity: -qtyToDeduct } });
       }
-
     } else if (action === 'Reject') {
       subOrder.status = 'Rejected';
-      
-      // Since we never deducted the stock during routing, we do NOT need to refund anything!
-      // The inventory stays exactly as it was.
-
-      // AUTO-REASSIGNMENT: Look for the next nearest retailer to fulfill this rejected order
       const [lng, lat] = order.location.coordinates;
       const { allocations } = await findNearestRetailerForItems(subOrder.items, lng, lat, [req.user.id]);
       
@@ -138,15 +141,16 @@ router.put('/:orderId/suborder/:subOrderId', verifyRetailerOrAdmin, async (req, 
         for (const [newRetailerId, newItems] of Object.entries(allocations)) {
           order.subOrders.push({ retailerId: newRetailerId, items: newItems, status: 'Pending' });
         }
+      } else {
+        const allResolved = order.subOrders.every(s => s.status !== 'Pending');
+        if (allResolved) order.status = 'Cancelled - Rejected by Store';
       }
     }
-    
     await order.save();
     res.status(200).json({ message: `Order ${action}ed` });
   } catch (err) { res.status(500).json({ message: 'Error updating order' }); }
 });
 
-// 5. ADMIN FETCHES ALL ORDERS
 router.get('/all-orders', verifyAdmin, async (req, res) => {
   try {
     const { retailerId, startDate, endDate, location } = req.query;
@@ -154,11 +158,7 @@ router.get('/all-orders', verifyAdmin, async (req, res) => {
     if (startDate && endDate) query.createdAt = { $gte: new Date(startDate), $lte: new Date(new Date(endDate).setHours(23, 59, 59)) };
     if (retailerId) query['subOrders.retailerId'] = retailerId;
     if (location) query.deliveryAddress = { $regex: location, $options: 'i' };
-
-    const orders = await Order.find(query)
-      .populate('customerId', 'name email contactNumber')
-      .populate('subOrders.retailerId', 'shopName location')
-      .sort({ createdAt: -1 });
+    const orders = await Order.find(query).populate('customerId', 'name email contactNumber').populate('subOrders.retailerId', 'shopName location').sort({ createdAt: -1 });
     res.status(200).json(orders);
   } catch (err) { res.status(500).json({ message: 'Error fetching global orders' }); }
 });
