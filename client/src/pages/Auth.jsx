@@ -3,19 +3,20 @@ import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { GoogleLogin } from '@react-oauth/google';
 
-export default function Auth() {
+// Now accepts portalName and customError props from the Router
+export default function Auth({ portalName = "Customer", customError }) {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState(customError || '');
   const [loading, setLoading] = useState(false);
   
   const navigate = useNavigate();
   const API_URL = import.meta.env.VITE_API_URL;
 
   const routeUser = (role) => {
-    if (role === 'customer') navigate('/customer');
+    if (role === 'customer') navigate('/');
     else if (role === 'retailer') navigate('/retailer');
     else if (role === 'delivery_agent') navigate('/agent');
     else if (role === 'admin') navigate('/admin');
@@ -40,23 +41,28 @@ export default function Auth() {
   };
 
   const handleGoogleSuccess = async (credentialResponse) => {
+    setLoading(true); 
+    setMessage('Verifying Google Credentials...');
     try {
       const res = await axios.post(`${API_URL}/api/auth/google`, { credential: credentialResponse.credential });
       localStorage.setItem('token', res.data.token);
       routeUser(res.data.user.role);
     } catch (error) {
       console.error("GOOGLE LOGIN CRASH:", error);
-      setMessage(`Login Failed: ${error.response?.data?.message || error.message}. Check backend logs.`);
+      setMessage(`Login Failed: ${error.response?.data?.message || 'Check logs'}`);
+      setLoading(false);
     }
   };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-500 to-pink-500 p-4">
       <div className="bg-white/95 p-8 rounded-2xl shadow-2xl max-w-md w-full">
-        <h1 className="text-3xl font-extrabold text-center text-gray-800 mb-6">Quick Commerce</h1>
+        <h1 className="text-3xl font-extrabold text-center text-gray-800 mb-1">QuickComm</h1>
+        {/* DYNAMIC TITLE BASED ON THE URL */}
+        <h2 className="text-sm font-bold text-center text-indigo-500 mb-6 uppercase tracking-widest">{portalName} Portal</h2>
         
         <div className="flex justify-center mb-6">
-          <GoogleLogin onSuccess={handleGoogleSuccess} onError={() => setMessage('Google Login Prompt Failed to Load.')} useOneTap />
+          <GoogleLogin onSuccess={handleGoogleSuccess} onError={() => setMessage('Google Login Failed')} useOneTap />
         </div>
         
         <div className="relative flex py-5 items-center">
@@ -67,16 +73,19 @@ export default function Auth() {
 
         <form onSubmit={handleStandardAuth} className="space-y-4">
           {!isLogin && <input type="text" placeholder="Full Name" required value={name} onChange={(e) => setName(e.target.value)} className="w-full px-4 py-2 border rounded-lg outline-none" />}
-          <input type="email" placeholder="Email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full px-4 py-2 border rounded-lg outline-none" />
-          <input type="password" placeholder="Password" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full px-4 py-2 border rounded-lg outline-none" />
+          <input type="email" placeholder="Email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full px-4 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500" />
+          <input type="password" placeholder="Password" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full px-4 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500" />
           <button type="submit" disabled={loading} className="w-full bg-indigo-600 text-white font-bold py-3 rounded-lg hover:bg-indigo-700 shadow-lg mt-4">{loading ? 'Processing...' : (isLogin ? 'Login' : 'Create Account')}</button>
         </form>
 
-        <div className="mt-6 text-center">
-          <button onClick={() => { setIsLogin(!isLogin); setMessage(''); }} className="text-indigo-600 font-semibold hover:underline">
-            {isLogin ? "New Customer? Register here" : "Already a customer? Login"}
-          </button>
-        </div>
+        {/* HIDE REGISTRATION FOR STAFF PORTALS */}
+        {portalName === 'Customer' && (
+          <div className="mt-6 text-center">
+            <button onClick={() => { setIsLogin(!isLogin); setMessage(''); }} className="text-indigo-600 font-semibold hover:underline">
+              {isLogin ? "New Customer? Register here" : "Already a customer? Login"}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
