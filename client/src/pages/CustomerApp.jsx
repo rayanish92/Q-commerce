@@ -21,8 +21,6 @@ export default function CustomerApp() {
   const [addresses, setAddresses] = useState([]);
   const [showAddressForm, setShowAddressForm] = useState(false);
   const [editAddressId, setEditAddressId] = useState(null);
-  
-  // ADDED PINCODE FIELD
   const [newAddress, setNewAddress] = useState({ label: 'Home', contactName: '', phoneNumber: '', address: '', landmark: '', pincode: '', lat: 22.5726, lng: 88.3639 });
   
   // LOCATION STATES
@@ -30,12 +28,9 @@ export default function CustomerApp() {
   const [locationName, setLocationName] = useState('Selecting Location...');
   const [location, setLocation] = useState({ lng: 88.3639, lat: 22.5726 }); 
   
-  // Modal Search States
   const [showLocationModal, setShowLocationModal] = useState(false);
   const [modalAddress, setModalAddress] = useState('');
   const [modalSuggestions, setModalSuggestions] = useState([]);
-  
-  // Form Search States (For Address Auto-Complete inside the form)
   const [formSuggestions, setFormSuggestions] = useState([]);
 
   const [loading, setLoading] = useState(true);
@@ -56,7 +51,7 @@ export default function CustomerApp() {
   useEffect(() => {
     if (activeTab === 'home') fetchNearbyProducts();
     if (activeTab === 'account' && accountSubTab === 'orders') { fetchMyOrders(); setSelectedOrder(null); }
-  }, [category, activeTab, testMode, location.lat, location.lng]);
+  }, [category, activeTab, testMode, location.lat, location.lng, selectedAddress]);
 
   useEffect(() => {
     const fetchFee = async () => {
@@ -77,6 +72,7 @@ export default function CustomerApp() {
       setUserProfile(res.data);
       setAddresses(res.data.addresses || []);
       setEditPhoneValue(res.data.contactNumber || '');
+      // Setup default new address template
       setNewAddress(prev => ({ ...prev, contactName: res.data.name, phoneNumber: res.data.contactNumber || '' }));
     } catch (err) {}
   };
@@ -101,22 +97,23 @@ export default function CustomerApp() {
             const data = await res.json();
             setLocationName(data.display_name.split(',').slice(0,2).join(','));
             
-            // FIX: Purposely leave address BLANK so Checkout manual entry is empty!
-            setNewAddress(prev => ({...prev, lat, lng, address: ''}));
+            // STRICTLY BLANK out the address so the checkout form is completely empty
+            setNewAddress(prev => ({...prev, lat, lng, address: '', pincode: '', landmark: ''}));
           } catch(err) { setLocationName('Current GPS Location'); }
           setShowLocationModal(false);
         },
-        () => { setLocationName('Kolkata (Default)'); setSelectedAddress(null); }
+        () => { setLocationName('Default Map Center'); setSelectedAddress(null); }
       );
     }
   };
 
-  // SEARCH DROPDOWN FOR MAP MODAL
+  // HYPER-LOCAL INDIA SEARCH FOR MAP MODAL
   const handleModalSearch = async (e) => {
     const query = e.target.value; setModalAddress(query);
-    if (query.length > 3) {
+    if (query.length > 2) {
       try {
-        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${query}&limit=5`);
+        // Enforced CountryCode=IN to force search in India for rural areas
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=8&countrycodes=in`);
         setModalSuggestions(await res.json());
       } catch (err) { setModalSuggestions([]); }
     } else { setModalSuggestions([]); }
@@ -127,17 +124,16 @@ export default function CustomerApp() {
     setLocation({ lat, lng });
     setLocationName(suggestion.display_name.split(',')[0] + ', ' + suggestion.display_name.split(',')[1]);
     
-    // FIX: Purposely leave address BLANK so Checkout manual entry is empty!
-    setNewAddress(prev => ({...prev, lat, lng, address: ''}));
+    // Strictly clear manual address for checkout
+    setNewAddress(prev => ({...prev, lat, lng, address: '', pincode: '', landmark: ''}));
     setSelectedAddress(null); 
     setShowLocationModal(false); setModalSuggestions([]); setModalAddress('');
   };
 
-  // SEARCH DROPDOWN FOR ADDRESS FORM
   const handleFormSearch = async (query) => {
     if (query.length > 3) {
       try {
-        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${query}&limit=5`);
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5&countrycodes=in`);
         setFormSuggestions(await res.json());
       } catch (err) { setFormSuggestions([]); }
     } else { setFormSuggestions([]); }
@@ -156,7 +152,9 @@ export default function CustomerApp() {
   const fetchNearbyProducts = async () => {
     setLoading(true);
     try {
-      const res = await axios.get(`${API_URL}/api/products/nearby?lng=${location.lng}&lat=${location.lat}&category=${category}&testMode=${testMode}`, getAuth());
+      const lat = selectedAddress ? selectedAddress.lat : location.lat;
+      const lng = selectedAddress ? selectedAddress.lng : location.lng;
+      const res = await axios.get(`${API_URL}/api/products/nearby?lng=${lng}&lat=${lat}&category=${category}&testMode=${testMode}`, getAuth());
       const uniqueProducts = []; const seenNames = new Set();
       res.data.forEach(p => { if (!seenNames.has(p.name)) { seenNames.add(p.name); uniqueProducts.push(p); } });
       setProducts(uniqueProducts);
@@ -168,13 +166,13 @@ export default function CustomerApp() {
   const handleSaveAddress = async (e) => {
     e.preventDefault();
     try {
+      let res;
       if (editAddressId) {
-        const res = await axios.put(`${API_URL}/api/auth/address/${editAddressId}`, newAddress, getAuth());
-        setAddresses(res.data);
+        res = await axios.put(`${API_URL}/api/auth/address/${editAddressId}`, newAddress, getAuth());
       } else {
-        const res = await axios.post(`${API_URL}/api/auth/address`, newAddress, getAuth());
-        setAddresses(res.data); 
+        res = await axios.post(`${API_URL}/api/auth/address`, newAddress, getAuth());
       }
+      setAddresses(res.data); 
       setShowAddressForm(false); setEditAddressId(null);
       setNewAddress({ label: 'Home', contactName: userProfile.name, phoneNumber: userProfile.contactNumber || '', address: '', landmark: '', pincode: '', lat: location.lat, lng: location.lng });
     } catch (err) { alert('Failed to save address'); }
@@ -215,7 +213,7 @@ export default function CustomerApp() {
       orderAddress = `${selectedAddress.address} (Landmark: ${selectedAddress.landmark || 'None'}) - PIN: ${selectedAddress.pincode || 'N/A'} - Name: ${selectedAddress.contactName}, Phone: ${selectedAddress.phoneNumber}`;
       orderLat = selectedAddress.lat; orderLng = selectedAddress.lng;
     } else {
-      if (!newAddress.contactName || !newAddress.phoneNumber || !newAddress.address) return alert("Please fill out your complete contact details for this unsaved location.");
+      if (!newAddress.contactName || !newAddress.phoneNumber || !newAddress.address || !newAddress.pincode) return alert("Please fill out your complete contact details & PIN Code for this unsaved location.");
       orderAddress = `${newAddress.address} (Landmark: ${newAddress.landmark || 'None'}) - PIN: ${newAddress.pincode || 'N/A'} - Name: ${newAddress.contactName}, Phone: ${newAddress.phoneNumber}`;
       orderLat = location.lat; orderLng = location.lng;
     }
@@ -242,14 +240,16 @@ export default function CustomerApp() {
       {/* MAP LOCATION MODAL */}
       {showLocationModal && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-end md:items-center justify-center">
-          <div className="bg-white w-full md:w-96 rounded-t-3xl md:rounded-3xl p-6 shadow-2xl h-[80vh] md:h-auto flex flex-col">
+          <div className="bg-white w-full md:w-96 rounded-t-3xl md:rounded-3xl p-6 shadow-2xl h-[85vh] md:h-[90vh] flex flex-col">
             <h3 className="text-xl font-bold mb-4">Set Map Location</h3>
-            <button onClick={detectLocation} className="w-full flex items-center justify-center gap-2 bg-indigo-100 text-indigo-700 font-bold py-3 rounded-xl mb-4 hover:bg-indigo-200">
+            <button onClick={detectLocation} className="w-full flex items-center justify-center gap-2 bg-indigo-100 text-indigo-700 font-bold py-3 rounded-xl mb-4 hover:bg-indigo-200 shadow-sm">
               <Crosshair className="w-5 h-5"/> Use Current GPS Location
             </button>
-            <div className="relative flex py-2 items-center"><div className="flex-grow border-t border-gray-300"></div><span className="flex-shrink-0 mx-4 text-gray-400 text-sm">or search</span><div className="flex-grow border-t border-gray-300"></div></div>
-            <div className="mt-2 relative flex-1">
-              <input type="text" placeholder="Search building, area, city..." value={modalAddress} onChange={handleModalSearch} className="w-full p-3 border rounded-xl mb-2 focus:ring-2 focus:ring-indigo-500 outline-none" />
+            
+            <div className="relative flex py-1 items-center"><div className="flex-grow border-t border-gray-300"></div><span className="flex-shrink-0 mx-4 text-gray-400 text-xs uppercase tracking-wider font-bold">Or Search City/Town</span><div className="flex-grow border-t border-gray-300"></div></div>
+            
+            <div className="mt-2 relative">
+              <input type="text" placeholder="Search town or nearest city..." value={modalAddress} onChange={handleModalSearch} className="w-full p-3 border rounded-xl mb-2 focus:ring-2 focus:ring-indigo-500 outline-none shadow-inner" />
               {modalSuggestions.length > 0 && (
                 <div className="bg-white border rounded-lg shadow-lg overflow-hidden absolute w-full z-10 max-h-48 overflow-y-auto">
                   {modalSuggestions.map((sug, i) => (
@@ -259,8 +259,25 @@ export default function CustomerApp() {
                   ))}
                 </div>
               )}
+              <p className="text-[10px] text-gray-400 text-center px-2 mt-1">If your exact village isn't listed, select your nearest town. You can type your exact village name manually during Checkout.</p>
             </div>
-            <button onClick={()=>setShowLocationModal(false)} className="w-full mt-3 text-gray-500 font-bold py-3 bg-gray-100 rounded-xl hover:bg-gray-200">Close</button>
+
+            {/* SAVED ADDRESSES SECTION IN MODAL */}
+            {addresses.length > 0 && (
+              <div className="mt-4 flex-1 overflow-hidden flex flex-col">
+                <div className="relative flex py-2 items-center"><div className="flex-grow border-t border-gray-300"></div><span className="flex-shrink-0 mx-4 text-gray-400 text-xs uppercase tracking-wider font-bold">Or Choose Saved</span><div className="flex-grow border-t border-gray-300"></div></div>
+                <div className="overflow-y-auto space-y-2 mt-2 pr-1">
+                  {addresses.map(addr => (
+                    <button key={addr._id} onClick={() => { setSelectedAddress(addr); setShowLocationModal(false); }} className="w-full text-left p-3 border border-indigo-100 rounded-xl hover:bg-indigo-50 transition bg-white shadow-sm">
+                      <span className="font-bold text-sm text-indigo-700 block">{addr.label}</span>
+                      <span className="text-xs text-gray-600 block truncate">{addr.address}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <button onClick={()=>setShowLocationModal(false)} className="w-full mt-4 text-gray-500 font-bold py-3 bg-gray-100 rounded-xl hover:bg-gray-200">Close</button>
           </div>
         </div>
       )}
@@ -272,9 +289,9 @@ export default function CustomerApp() {
             <button onClick={() => setTestMode(!testMode)} className={`flex items-center gap-1 text-[10px] px-2 py-1 rounded-full font-bold border transition ${testMode ? 'bg-red-500' : 'bg-indigo-700'}`}>
               <Globe className="w-3 h-3" /> {testMode ? "Test" : "10km"}
             </button>
-            <button onClick={() => setShowLocationModal(true)} className="flex flex-col items-end max-w-[150px] text-right bg-indigo-700 p-2 rounded-lg hover:bg-indigo-800 transition">
-              <span className="text-[10px] font-bold text-indigo-200 uppercase">Map Area</span>
-              <div className="flex items-center gap-1"><span className="font-bold text-sm truncate">{locationName}</span><MapPin className="w-4 h-4 text-pink-400 flex-shrink-0" /></div>
+            <button onClick={() => setShowLocationModal(true)} className="flex flex-col items-end max-w-[150px] text-right bg-indigo-700 p-2 rounded-lg hover:bg-indigo-800 transition shadow-inner">
+              <span className="text-[10px] font-bold text-indigo-200 uppercase">Delivering to</span>
+              <div className="flex items-center gap-1"><span className="font-bold text-sm truncate">{selectedAddress ? `${selectedAddress.label} (${selectedAddress.pincode})` : locationName}</span><MapPin className="w-4 h-4 text-pink-400 flex-shrink-0" /></div>
             </button>
           </div>
         </div>
@@ -327,28 +344,28 @@ export default function CustomerApp() {
               
               {/* Option 1: Unsaved Map Location */}
               <label className={`flex items-start gap-3 p-4 border rounded-xl cursor-pointer mb-4 transition ${!selectedAddress ? 'border-indigo-600 bg-indigo-50 shadow-sm' : 'hover:bg-gray-50'}`}>
-                <input type="radio" checked={!selectedAddress} onChange={() => setSelectedAddress(null)} className="mt-1 w-4 h-4 text-indigo-600" />
+                <input type="radio" checked={!selectedAddress} onChange={() => { setSelectedAddress(null); setNewAddress(prev => ({...prev, address: '', pincode: '', landmark: ''})); }} className="mt-1 w-4 h-4 text-indigo-600" />
                 <div className="flex-1">
                   <span className="font-bold bg-indigo-600 text-white px-2 py-0.5 rounded text-[10px] uppercase tracking-widest">Active Map Location</span>
                   <p className="text-sm font-bold text-gray-800 mt-2">{locationName}</p>
                   
                   {!selectedAddress && (
-                    <div className="mt-3 bg-white p-3 rounded border border-indigo-200 grid grid-cols-1 md:grid-cols-2 gap-2">
-                       <input type="text" placeholder="Contact Name" value={newAddress.contactName} onChange={(e) => setNewAddress({...newAddress, contactName: e.target.value})} className="border p-2 rounded text-sm outline-none" />
-                       <input type="text" placeholder="Phone Number" value={newAddress.phoneNumber} onChange={(e) => setNewAddress({...newAddress, phoneNumber: e.target.value})} className="border p-2 rounded text-sm outline-none" />
+                    <div className="mt-3 bg-white p-3 rounded border border-indigo-200 grid grid-cols-1 md:grid-cols-2 gap-2 shadow-inner">
+                       <input type="text" placeholder="Contact Name" value={newAddress.contactName} onChange={(e) => setNewAddress({...newAddress, contactName: e.target.value})} className="border p-2 rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
+                       <input type="text" placeholder="Phone Number" value={newAddress.phoneNumber} onChange={(e) => setNewAddress({...newAddress, phoneNumber: e.target.value})} className="border p-2 rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
                        
                        {/* Dropdown for Manual Entry inside Checkout */}
                        <div className="relative md:col-span-2">
-                         <input type="text" placeholder="Start typing exact House/Street/Area..." value={newAddress.address} onChange={(e) => { setNewAddress({...newAddress, address: e.target.value}); handleFormSearch(e.target.value); }} className="w-full border p-2 rounded text-sm outline-none" />
+                         <input type="text" placeholder="Start typing exact Village/Street/Area..." value={newAddress.address} onChange={(e) => { setNewAddress({...newAddress, address: e.target.value}); handleFormSearch(e.target.value); }} className="w-full border p-2 rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
                          {formSuggestions.length > 0 && (
-                            <div className="absolute w-full bg-white border rounded shadow-lg z-10 max-h-40 overflow-y-auto mt-1">
-                               {formSuggestions.map((s, i) => <div key={i} onClick={() => selectFormSuggestion(s)} className="p-2 border-b hover:bg-gray-50 text-xs cursor-pointer">{s.display_name}</div>)}
+                            <div className="absolute w-full bg-white border rounded shadow-2xl z-10 max-h-40 overflow-y-auto mt-1">
+                               {formSuggestions.map((s, i) => <div key={i} onClick={() => selectFormSuggestion(s)} className="p-3 border-b hover:bg-indigo-50 text-xs cursor-pointer font-bold text-gray-700">{s.display_name}</div>)}
                             </div>
                          )}
                        </div>
                        
-                       <input type="text" placeholder="Landmark" value={newAddress.landmark} onChange={(e) => setNewAddress({...newAddress, landmark: e.target.value})} className="border p-2 rounded text-sm outline-none" />
-                       <input type="text" placeholder="Pincode" value={newAddress.pincode} onChange={(e) => setNewAddress({...newAddress, pincode: e.target.value})} className="border p-2 rounded text-sm outline-none" />
+                       <input type="text" placeholder="Landmark" value={newAddress.landmark} onChange={(e) => setNewAddress({...newAddress, landmark: e.target.value})} className="border p-2 rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
+                       <input type="text" placeholder="PIN Code" value={newAddress.pincode} onChange={(e) => setNewAddress({...newAddress, pincode: e.target.value})} className="border p-2 rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500 font-bold tracking-widest" />
                     </div>
                   )}
                 </div>
@@ -362,7 +379,7 @@ export default function CustomerApp() {
                   <div className="flex-1">
                     <span className="font-bold bg-gray-200 px-2 py-0.5 rounded text-xs text-gray-800">{addr.label}</span>
                     <p className="text-sm font-bold text-gray-800 mt-1">{addr.contactName} - {addr.phoneNumber}</p>
-                    <p className="text-xs font-medium text-gray-600 mt-1">{addr.address} {addr.landmark ? `(${addr.landmark})` : ''} - {addr.pincode}</p>
+                    <p className="text-xs font-medium text-gray-600 mt-1">{addr.address} {addr.landmark ? `(${addr.landmark})` : ''} - PIN: {addr.pincode}</p>
                   </div>
                 </label>
               ))}
@@ -371,7 +388,7 @@ export default function CustomerApp() {
             <div className="bg-white rounded-2xl shadow-sm border p-5 mb-4">
               <h3 className="font-bold text-gray-500 text-sm uppercase mb-3">Bill Summary</h3>
               <div className="flex justify-between text-gray-600 mb-2"><span className="font-medium">Item Total</span><span className="font-bold">₹{itemTotal}</span></div>
-              <div className="flex justify-between text-gray-600 mb-2"><span className="font-medium flex items-center gap-1">Delivery Fee <Info className="w-3 h-3"/></span><span className="font-bold">₹{deliveryFee}</span></div>
+              <div className="flex justify-between text-gray-600 mb-2"><span className="font-medium flex items-center gap-1">Delivery Fee (Calculated by Distance) <Info className="w-3 h-3 text-indigo-400"/></span><span className="font-bold">₹{deliveryFee}</span></div>
               <div className="flex justify-between text-xl font-extrabold text-gray-900 border-t pt-3"><span>Grand Total</span><span>₹{grandTotal}</span></div>
             </div>
 
@@ -416,7 +433,6 @@ export default function CustomerApp() {
           </div>
         )}
 
-        {/* ACCOUNT TAB */}
         {activeTab === 'account' && (
           <div className="flex flex-col md:flex-row gap-6">
             {!selectedOrder && (
@@ -455,7 +471,7 @@ export default function CustomerApp() {
 
               {accountSubTab === 'addresses' && !selectedOrder && (
                 <div className="bg-white rounded-2xl shadow-sm border p-6">
-                  <h3 className="font-bold text-gray-800 text-lg mb-4 flex justify-between items-center">Saved Addresses <button onClick={() => {setEditAddressId(null); setShowAddressForm(!showAddressForm);}} className="bg-indigo-100 text-indigo-700 text-sm px-3 py-1 rounded-lg hover:bg-indigo-200">+ Add New</button></h3>
+                  <h3 className="font-bold text-gray-800 text-lg mb-4 flex justify-between items-center">Saved Addresses <button onClick={() => {setEditAddressId(null); setNewAddress({ label: 'Home', contactName: userProfile.name, phoneNumber: userProfile.contactNumber || '', address: '', landmark: '', pincode: '', lat: location.lat, lng: location.lng }); setShowAddressForm(!showAddressForm);}} className="bg-indigo-100 text-indigo-700 text-sm px-3 py-1 rounded-lg hover:bg-indigo-200">+ Add New</button></h3>
                   {showAddressForm && (
                     <form onSubmit={handleSaveAddress} className="mb-6 p-5 bg-gray-50 border rounded-xl space-y-4 shadow-inner">
                       <div className="grid grid-cols-2 gap-4">
@@ -464,20 +480,24 @@ export default function CustomerApp() {
                       </div>
                       <div className="grid grid-cols-2 gap-4">
                         <input type="text" placeholder="Phone Number" required value={newAddress.phoneNumber} onChange={e=>setNewAddress({...newAddress, phoneNumber: e.target.value})} className="w-full p-3 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500" />
-                        <input type="text" placeholder="Pincode" required value={newAddress.pincode} onChange={e=>setNewAddress({...newAddress, pincode: e.target.value})} className="w-full p-3 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500" />
+                        <input type="text" placeholder="Pincode" required value={newAddress.pincode} onChange={e=>setNewAddress({...newAddress, pincode: e.target.value})} className="w-full p-3 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-bold" />
                       </div>
                       
                       <div className="relative">
                         <input type="text" placeholder="Full Address (Start typing to search...)" required value={newAddress.address} onChange={(e)=>{setNewAddress({...newAddress, address: e.target.value}); handleFormSearch(e.target.value);}} className="w-full p-3 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500" />
                         {formSuggestions.length > 0 && (
-                          <div className="absolute w-full bg-white border rounded shadow-lg z-10 max-h-40 overflow-y-auto mt-1">
-                             {formSuggestions.map((s, i) => <div key={i} onClick={() => selectFormSuggestion(s)} className="p-2 border-b hover:bg-gray-50 text-sm cursor-pointer text-gray-700">{s.display_name}</div>)}
+                          <div className="absolute w-full bg-white border rounded shadow-2xl z-10 max-h-40 overflow-y-auto mt-1">
+                             {formSuggestions.map((s, i) => <div key={i} onClick={() => selectFormSuggestion(s)} className="p-3 border-b hover:bg-indigo-50 text-sm cursor-pointer text-gray-700 font-bold">{s.display_name}</div>)}
                           </div>
                         )}
                       </div>
 
                       <input type="text" placeholder="Landmark (Optional)" value={newAddress.landmark} onChange={e=>setNewAddress({...newAddress, landmark: e.target.value})} className="w-full p-3 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500" />
-                      <button type="submit" className="w-full bg-indigo-600 text-white font-bold py-3 rounded-lg hover:bg-indigo-700">{editAddressId ? 'Update Address' : 'Save Address'}</button>
+                      
+                      <div className="flex gap-2">
+                        <button type="submit" className="flex-1 bg-indigo-600 text-white font-bold py-3 rounded-lg hover:bg-indigo-700">{editAddressId ? 'Update Address' : 'Save Address'}</button>
+                        <button type="button" onClick={() => setShowAddressForm(false)} className="bg-gray-300 text-gray-800 font-bold py-3 px-6 rounded-lg hover:bg-gray-400">Cancel</button>
+                      </div>
                     </form>
                   )}
                   <div className="space-y-3">
