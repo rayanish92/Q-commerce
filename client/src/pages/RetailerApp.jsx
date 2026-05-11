@@ -128,8 +128,7 @@ export default function RetailerApp() {
       await axios.put(`${API_URL}/api/orders/${orderId}/suborder/${subOrderId}`, { action }, getAuth());
       setMessage(`Order ${action}ed successfully.`); 
       fetchOrders();
-      // THIS FETCH SYNC ENSURES THE REFUNDED QUANTITY INSTANTLY APPEARS IN THE UI
-      fetchData(); 
+      fetchData(); // Refresh UI instantly
       setTimeout(() => setMessage(''), 3000);
     } catch (err) { setMessage(`Failed to process order action.`); }
   };
@@ -271,12 +270,17 @@ export default function RetailerApp() {
                    <div className="mb-4">
                      <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Items to Fulfill:</p>
                      <ul className="space-y-1">
-                       {order.subOrder.items.map((i, idx) => (
-                         <li key={idx} className="font-bold text-gray-800 flex justify-between">
-                            <span>• {i.cartQty || i.quantity || 1}x {i.name}</span>
-                            <span className="text-gray-500">₹{i.price * (i.cartQty || i.quantity || 1)}</span>
-                         </li>
-                       ))}
+                       {order.subOrder.items.map((i, idx) => {
+                         const qty = i.cartQty || i.quantity || 1;
+                         // FIX: Calculate using retailerPrice instead of the platform's markup price
+                         const priceToUse = i.retailerPrice || i.price;
+                         return (
+                           <li key={idx} className="font-bold text-gray-800 flex justify-between">
+                              <span>• {qty}x {i.name}</span>
+                              <span className="text-gray-500">₹{priceToUse * qty}</span>
+                           </li>
+                         );
+                       })}
                      </ul>
                    </div>
 
@@ -329,7 +333,12 @@ export default function RetailerApp() {
                 <div>
                   <p className="text-indigo-800 font-bold uppercase text-sm">Your Fulfillment Revenue</p>
                   <p className="text-4xl font-extrabold text-indigo-600">
-                    ₹{orders.reduce((sum, order) => sum + order.subOrder.items.reduce((itemSum, item) => itemSum + (item.price * (item.cartQty || item.quantity || 1)), 0), 0)}
+                    ₹{orders.reduce((sum, order) => sum + order.subOrder.items.reduce((itemSum, item) => {
+                      const qty = item.cartQty || item.quantity || 1;
+                      // FIX: Summarize based on the retailer's original requested price!
+                      const priceToUse = item.retailerPrice || item.price;
+                      return itemSum + (priceToUse * qty);
+                    }, 0), 0)}
                   </p>
                 </div>
                 <BarChart2 className="w-12 h-12 text-indigo-200" />
