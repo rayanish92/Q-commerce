@@ -8,33 +8,30 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <link rel="apple-touch-icon" href="/pwa-192x192.png" />
     
-    <!-- CRITICAL FIX: Hardcoded tags so Chrome's PWA crawler doesn't panic -->
-    <link id="dynamic-manifest" rel="manifest" href="/manifest-customer.json" />
-    <meta id="dynamic-theme" name="theme-color" content="#4f46e5" />
-
-    <!-- THE SAFE SMART PWA INJECTOR (Secretly swaps the hardcoded tags) -->
     <script>
       (function() {
-        const path = window.location.pathname;
-        let manifestUrl = '/manifest-customer.json';
-        let title = 'QuickComm';
-        let themeColor = '#4f46e5'; 
+        var path = window.location.pathname;
+        var manifestUrl = '/manifest-customer.json';
+        var themeColor = '#4f46e5'; 
 
         if (path.startsWith('/retailer')) { 
-          manifestUrl = '/manifest-retailer.json'; title = 'Retailer Desk'; themeColor = '#059669'; 
+          manifestUrl = '/manifest-retailer.json'; themeColor = '#059669'; 
         } else if (path.startsWith('/admin')) { 
-          manifestUrl = '/manifest-admin.json'; title = 'Admin Core'; themeColor = '#111827'; 
+          manifestUrl = '/manifest-admin.json'; themeColor = '#111827'; 
         } else if (path.startsWith('/agent')) { 
-          manifestUrl = '/manifest-agent.json'; title = 'Delivery Fleet'; themeColor = '#d946ef'; 
+          manifestUrl = '/manifest-agent.json'; themeColor = '#d946ef'; 
         }
 
-        document.title = title;
+        // Create and append the tags before the rest of the page loads
+        var manifestLink = document.createElement('link');
+        manifestLink.rel = 'manifest';
+        manifestLink.href = manifestUrl;
+        document.head.appendChild(manifestLink);
 
-        // Wait for the browser to finish reading, then instantly swap to the correct portal's app
-        window.addEventListener('DOMContentLoaded', () => {
-          document.getElementById('dynamic-manifest').href = manifestUrl;
-          document.getElementById('dynamic-theme').content = themeColor;
-        });
+        var themeMeta = document.createElement('meta');
+        themeMeta.name = 'theme-color';
+        themeMeta.content = themeColor;
+        document.head.appendChild(themeMeta);
       })();
     </script>
   </head>
