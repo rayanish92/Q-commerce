@@ -8,32 +8,10 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <link rel="apple-touch-icon" href="/pwa-192x192.png" />
     
-    <script>
-      (function() {
-        var path = window.location.pathname;
-        var manifestUrl = '/manifest-customer.json';
-        var themeColor = '#4f46e5'; 
-
-        if (path.startsWith('/retailer')) { 
-          manifestUrl = '/manifest-retailer.json'; themeColor = '#059669'; 
-        } else if (path.startsWith('/admin')) { 
-          manifestUrl = '/manifest-admin.json'; themeColor = '#111827'; 
-        } else if (path.startsWith('/agent')) { 
-          manifestUrl = '/manifest-agent.json'; themeColor = '#d946ef'; 
-        }
-
-        // Create and append the tags before the rest of the page loads
-        var manifestLink = document.createElement('link');
-        manifestLink.rel = 'manifest';
-        manifestLink.href = manifestUrl;
-        document.head.appendChild(manifestLink);
-
-        var themeMeta = document.createElement('meta');
-        themeMeta.name = 'theme-color';
-        themeMeta.content = themeColor;
-        document.head.appendChild(themeMeta);
-      })();
-    </script>
+    <!-- HARDCODED CUSTOMER MANIFEST -->
+    <link rel="manifest" href="/manifest-customer.json" />
+    <meta name="theme-color" content="#4f46e5" />
+    <title>QuickComm</title>
   </head>
   <body>
     <div id="root"></div>
