@@ -9,6 +9,9 @@ import { GoogleOAuthProvider } from '@react-oauth/google';
 // 2. IMPORT THE PWA REGISTRATION
 import { registerSW } from 'virtual:pwa-register';
 
+// THIS IS REQUIRED FOR THE INSTALL BUTTON TO SHOW UP
+import { registerSW } from 'virtual:pwa-register';
+
 const updateSW = registerSW({
   onNeedRefresh() {
     if (confirm('New system update available! Click OK to refresh.')) {
