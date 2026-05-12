@@ -24,19 +24,25 @@
           manifestUrl = '/manifest-agent.json'; title = 'Delivery Fleet'; themeColor = '#d946ef'; 
         }
 
-        // Safely inject the Manifest
-        const manifestLink = document.createElement('link');
-        manifestLink.rel = 'manifest';
-        manifestLink.href = manifestUrl;
-        document.head.appendChild(manifestLink);
-
-        // Safely inject the Theme Color
-        const themeMeta = document.createElement('meta');
-        themeMeta.name = 'theme-color';
-        themeMeta.content = themeColor;
-        document.head.appendChild(themeMeta);
-
         document.title = title;
+
+        // Wait for the DOM to load, then SWAP the default manifest Vite injected
+        window.addEventListener('DOMContentLoaded', () => {
+          const manifestTag = document.querySelector('link[rel="manifest"]');
+          if (manifestTag) {
+            manifestTag.href = manifestUrl;
+          }
+
+          const themeTag = document.querySelector('meta[name="theme-color"]');
+          if (themeTag) {
+            themeTag.content = themeColor;
+          } else {
+            const newTheme = document.createElement('meta');
+            newTheme.name = 'theme-color';
+            newTheme.content = themeColor;
+            document.head.appendChild(newTheme);
+          }
+        });
       })();
     </script>
   </head>
