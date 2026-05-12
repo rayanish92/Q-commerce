@@ -2,6 +2,7 @@
   "name": "Admin Core Dashboard",
   "short_name": "Admin Core",
   "start_url": "/admin",
+  "scope": "/admin",
   "display": "standalone",
   "background_color": "#111827",
   "theme_color": "#111827",
