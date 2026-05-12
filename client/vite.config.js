@@ -7,10 +7,21 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      injectRegister: 'auto',
-      manifest: false, // CRITICAL: We are turning this off so we can inject our 4 dynamic manifests!
+      // Provide a default manifest to prevent the Workbox build crash
+      manifest: {
+        name: 'QuickComm',
+        short_name: 'QuickComm',
+        start_url: '/',
+        display: 'standalone',
+        background_color: '#ffffff',
+        theme_color: '#4f46e5',
+        icons: [
+          { src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' },
+          { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' }
+        ]
+      },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,json}']
+        globPatterns: ['**/*.{js,css,html,ico,png,svg}']
       }
     })
   ],
