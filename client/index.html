@@ -8,7 +8,11 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <link rel="apple-touch-icon" href="/pwa-192x192.png" />
     
-    <!-- THE SAFE SMART PWA INJECTOR -->
+    <!-- CRITICAL FIX: Hardcoded tags so Chrome's PWA crawler doesn't panic -->
+    <link id="dynamic-manifest" rel="manifest" href="/manifest-customer.json" />
+    <meta id="dynamic-theme" name="theme-color" content="#4f46e5" />
+
+    <!-- THE SAFE SMART PWA INJECTOR (Secretly swaps the hardcoded tags) -->
     <script>
       (function() {
         const path = window.location.pathname;
@@ -26,22 +30,10 @@
 
         document.title = title;
 
-        // Wait for the DOM to load, then SWAP the default manifest Vite injected
+        // Wait for the browser to finish reading, then instantly swap to the correct portal's app
         window.addEventListener('DOMContentLoaded', () => {
-          const manifestTag = document.querySelector('link[rel="manifest"]');
-          if (manifestTag) {
-            manifestTag.href = manifestUrl;
-          }
-
-          const themeTag = document.querySelector('meta[name="theme-color"]');
-          if (themeTag) {
-            themeTag.content = themeColor;
-          } else {
-            const newTheme = document.createElement('meta');
-            newTheme.name = 'theme-color';
-            newTheme.content = themeColor;
-            document.head.appendChild(newTheme);
-          }
+          document.getElementById('dynamic-manifest').href = manifestUrl;
+          document.getElementById('dynamic-theme').content = themeColor;
         });
       })();
     </script>
