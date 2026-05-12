@@ -11,10 +11,17 @@ export default defineConfig({
       injectRegister: 'auto',
       manifest: false, // We handle manifests physically in our 4 HTML files
       workbox: {
-        // 1. Tell Workbox to cache these standard web files
-        globPatterns: ['**/*.{js,css,html,png,jpg,json}'],
-        // 2. CRITICAL FIX: Do not crash the build if a file type is missing!
-        globStrict: false,
+        globPatterns: ['**/*.{js,css,html}'],
+        // CRITICAL FIX: Adding runtimeCaching satisfies Workbox and stops the build crash permanently
+        runtimeCaching: [
+          {
+            urlPattern: /^https:\/\/.*\.(png|jpg|jpeg|svg|gif|webp)$/,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'images-cache'
+            }
+          }
+        ]
       }
     })
   ],
