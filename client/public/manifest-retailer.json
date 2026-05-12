@@ -2,6 +2,7 @@
   "name": "Retailer Desk Portal",
   "short_name": "Retailer",
   "start_url": "/retailer",
+  "scope": "/retailer",
   "display": "standalone",
   "background_color": "#f9fafb",
   "theme_color": "#059669",
