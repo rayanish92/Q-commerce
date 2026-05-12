@@ -8,33 +8,36 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <link rel="apple-touch-icon" href="/pwa-192x192.png" />
     
-    <!-- THE SMART PWA INJECTOR -->
+    <!-- THE SAFE SMART PWA INJECTOR -->
     <script>
-      const path = window.location.pathname;
-      let manifest = '/manifest-customer.json';
-      let title = 'QuickComm';
-      let themeColor = '#4f46e5'; // Indigo
+      (function() {
+        const path = window.location.pathname;
+        let manifestUrl = '/manifest-customer.json';
+        let title = 'QuickComm';
+        let themeColor = '#4f46e5'; 
 
-      if (path.startsWith('/retailer')) { 
-        manifest = '/manifest-retailer.json'; 
-        title = 'Retailer Desk'; 
-        themeColor = '#059669'; // Emerald Green
-      } 
-      else if (path.startsWith('/admin')) { 
-        manifest = '/manifest-admin.json'; 
-        title = 'Admin Core'; 
-        themeColor = '#111827'; // Dark Gray/Black
-      } 
-      else if (path.startsWith('/agent')) { 
-        manifest = '/manifest-agent.json'; 
-        title = 'Delivery Fleet'; 
-        themeColor = '#d946ef'; // Fuchsia
-      }
+        if (path.startsWith('/retailer')) { 
+          manifestUrl = '/manifest-retailer.json'; title = 'Retailer Desk'; themeColor = '#059669'; 
+        } else if (path.startsWith('/admin')) { 
+          manifestUrl = '/manifest-admin.json'; title = 'Admin Core'; themeColor = '#111827'; 
+        } else if (path.startsWith('/agent')) { 
+          manifestUrl = '/manifest-agent.json'; title = 'Delivery Fleet'; themeColor = '#d946ef'; 
+        }
 
-      // Dynamically inject the correct PWA file into the phone's browser
-      document.write(`<link rel="manifest" href="${manifest}">`);
-      document.write(`<meta name="theme-color" content="${themeColor}">`);
-      document.title = title;
+        // Safely inject the Manifest
+        const manifestLink = document.createElement('link');
+        manifestLink.rel = 'manifest';
+        manifestLink.href = manifestUrl;
+        document.head.appendChild(manifestLink);
+
+        // Safely inject the Theme Color
+        const themeMeta = document.createElement('meta');
+        themeMeta.name = 'theme-color';
+        themeMeta.content = themeColor;
+        document.head.appendChild(themeMeta);
+
+        document.title = title;
+      })();
     </script>
   </head>
   <body>
