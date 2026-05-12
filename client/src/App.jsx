@@ -1,5 +1,6 @@
-import React, { useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { Download } from 'lucide-react';
 
 import Auth from './pages/Auth.jsx';
 import CustomerApp from './pages/CustomerApp.jsx';
@@ -21,25 +22,59 @@ const parseJwt = (token) => {
   }
 };
 
-// NATIVE PWA INSTALL TRIGGER
-const NativeInstallTrigger = () => {
+// SMART INSTALL BUTTON (Triggers Native Chrome Popup)
+const InstallAppTrigger = () => {
+  const [deferredPrompt, setDeferredPrompt] = useState(null);
+  const [isInstalled, setIsInstalled] = useState(false);
+
   useEffect(() => {
+    // Check if already installed
+    if (window.matchMedia('(display-mode: standalone)').matches) {
+      setIsInstalled(true);
+    }
+
     const handleBeforeInstallPrompt = (e) => {
-      // By NOT calling e.preventDefault() here, we allow the 
-      // native Android Chrome "Install App" notification to slide up automatically!
-      
-      // We can optionally log that the prompt was shown
-      console.log("Native Install Prompt Fired!");
+      // Prevent automatic prompt
+      e.preventDefault();
+      // Save the event so it can be triggered by our button
+      setDeferredPrompt(e);
     };
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
 
-    return () => {
-      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-    };
+    window.addEventListener('appinstalled', () => {
+      setIsInstalled(true);
+      setDeferredPrompt(null);
+    });
+
+    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
   }, []);
 
-  return null;
+  const handleInstallClick = async () => {
+    if (deferredPrompt) {
+      // Show the native browser prompt
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') {
+        setDeferredPrompt(null);
+      }
+    }
+  };
+
+  // Only show the button if the app is NOT installed AND the browser is ready
+  if (isInstalled || !deferredPrompt) return null;
+
+  return (
+    <div className="fixed top-4 right-4 z-[100]">
+      <button 
+        onClick={handleInstallClick} 
+        className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-full font-bold text-xs shadow-lg hover:bg-indigo-700 transition transform hover:scale-105 border-2 border-white"
+      >
+        <Download className="w-4 h-4" />
+        Install App
+      </button>
+    </div>
+  );
 };
 
 const Portal = ({ children, allowedRole, portalName }) => {
@@ -79,8 +114,8 @@ export default function App() {
         </Routes>
       </BrowserRouter>
       
-      {/* Allows the native browser popup to trigger */}
-      <NativeInstallTrigger />
+      {/* Floating Install Button that calls the Native Prompt */}
+      <InstallAppTrigger />
     </>
   );
 }
