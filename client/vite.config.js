@@ -9,10 +9,12 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       injectRegister: 'auto',
-      // Set to false because we are using our physical manifest files
-      manifest: false,
+      manifest: false, // We handle manifests physically in our 4 HTML files
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,json}']
+        // 1. Tell Workbox to cache these standard web files
+        globPatterns: ['**/*.{js,css,html,png,jpg,json}'],
+        // 2. CRITICAL FIX: Do not crash the build if a file type is missing!
+        globStrict: false,
       }
     })
   ],
