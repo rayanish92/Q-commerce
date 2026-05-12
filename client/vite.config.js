@@ -1,17 +1,29 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
+import { resolve } from 'path';
 
 export default defineConfig({
   plugins: [
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      manifest: false, // CRITICAL: Tells Vite to back off and let our HTML handle it
+      injectRegister: 'auto',
+      // Set to false because we are using our physical manifest files
+      manifest: false,
       workbox: {
-        // Safe glob pattern so the build doesn't crash on Render
-        globPatterns: ['**/*.{js,css,html,png,svg,json}']
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,json}']
       }
     })
   ],
+  build: {
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, 'index.html'),
+        retailer: resolve(__dirname, 'retailer.html'),
+        admin: resolve(__dirname, 'admin.html'),
+        agent: resolve(__dirname, 'agent.html'),
+      }
+    }
+  }
 });
