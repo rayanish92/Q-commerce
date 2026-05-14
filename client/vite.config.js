@@ -12,7 +12,7 @@ export default defineConfig({
       manifest: false, 
       workbox: {
         globPatterns: ['**/*.{js,css,html,png,json,svg,ico}'],
-        globStrict: false,
+        // globStrict has been removed to satisfy Workbox validation
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/.*\.(png|jpg|jpeg|svg|webp)$/,
