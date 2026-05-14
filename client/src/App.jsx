@@ -7,7 +7,6 @@ import RetailerApp from './pages/RetailerApp.jsx';
 import AdminApp from './pages/AdminApp.jsx';
 import AgentApp from './pages/AgentApp.jsx';
 
-// CRITICAL FIX: Uncrashable JWT Decoder
 const parseJwt = (token) => {
   try {
     const base64Url = token.split('.')[1];
