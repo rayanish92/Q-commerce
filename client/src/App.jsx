@@ -6,47 +6,16 @@ import CustomerApp from './pages/CustomerApp.jsx';
 import RetailerApp from './pages/RetailerApp.jsx';
 import AdminApp from './pages/AdminApp.jsx';
 import AgentApp from './pages/AgentApp.jsx';
+import InstallButton from './InstallButton.jsx'; // <-- 1. Import the button
 
-const parseJwt = (token) => {
-  try {
-    const base64Url = token.split('.')[1];
-    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    const jsonPayload = decodeURIComponent(window.atob(base64).split('').map(function(c) {
-        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-    }).join(''));
-    return JSON.parse(jsonPayload);
-  } catch (e) {
-    return null;
-  }
-};
-
-const Portal = ({ children, allowedRole, portalName }) => {
-  const token = localStorage.getItem('token');
-
-  if (!token || token === 'undefined') {
-    return <Auth portalName={portalName} />;
-  }
-  
-  const decodedToken = parseJwt(token);
-  
-  if (!decodedToken) {
-    localStorage.removeItem('token');
-    return <Auth portalName={portalName} customError="Session expired. Please log in again." />;
-  }
-
-  const userRole = decodedToken.user.role;
-
-  if (userRole === allowedRole) {
-    return children;
-  } else {
-    localStorage.removeItem('token');
-    return <Auth portalName={portalName} customError={`Access Denied. This portal is strictly for ${allowedRole.replace('_', ' ')}s.`} />;
-  }
-};
+// ... (keep your existing parseJwt and Portal code exactly the same) ...
 
 export default function App() {
   return (
     <BrowserRouter>
+      {/* 2. Place the button right here so it floats on top of all pages */}
+      <InstallButton /> 
+      
       <Routes>
         <Route path="/" element={<Portal allowedRole="customer" portalName="Customer"><CustomerApp /></Portal>} />
         <Route path="/retailer" element={<Portal allowedRole="retailer" portalName="Retailer"><RetailerApp /></Portal>} />
