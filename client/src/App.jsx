@@ -8,6 +8,7 @@ import RetailerApp from './pages/RetailerApp.jsx';
 import AdminApp from './pages/AdminApp.jsx';
 import AgentApp from './pages/AgentApp.jsx';
 import InstallButton from './InstallButton.jsx';
+import DynamicManifest from './DynamicManifest.jsx'; // <-- 1. Import it
 
 /**
  * HELPER: parseJwt
@@ -64,6 +65,7 @@ export default function App() {
   return (
     <BrowserRouter>
       {/* This button stays on top of every page */}
+      <DynamicManifest />
       <InstallButton /> 
       
       <Routes>
