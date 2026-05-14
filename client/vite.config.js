@@ -9,17 +9,15 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       injectRegister: 'auto',
-      manifest: false, // We handle manifests physically in our 4 HTML files
+      manifest: false, 
       workbox: {
-        globPatterns: ['**/*.{js,css,html}'],
-        // CRITICAL FIX: Adding runtimeCaching satisfies Workbox and stops the build crash permanently
+        globPatterns: ['**/*.{js,css,html,png,json,svg,ico}'],
+        globStrict: false,
         runtimeCaching: [
           {
-            urlPattern: /^https:\/\/.*\.(png|jpg|jpeg|svg|gif|webp)$/,
+            urlPattern: /^https:\/\/.*\.(png|jpg|jpeg|svg|webp)$/,
             handler: 'CacheFirst',
-            options: {
-              cacheName: 'images-cache'
-            }
+            options: { cacheName: 'images' }
           }
         ]
       }
