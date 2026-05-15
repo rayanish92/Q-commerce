@@ -41,7 +41,7 @@ const findNearestRetailerForItems = async (items, lng, lat, excludeRetailerIds =
 };
 
 // =========================================================
-// NEW: AUTO-ASSIGNMENT ALGORITHM
+// AUTO-ASSIGNMENT ALGORITHM (FIXED)
 // =========================================================
 const autoAssignAgent = async (order, retailerId) => {
   try {
@@ -65,7 +65,13 @@ const autoAssignAgent = async (order, retailerId) => {
     if (nearestAgent) {
       order.deliveryAgent = nearestAgent._id;
       order.status = 'Assigned';
-      // Optional: Increase agent's active load
+      
+      // CRITICAL FIX: Update the subOrders so the Admin UI sees the assignment!
+      order.subOrders.forEach(sub => {
+        sub.status = 'Assigned';
+      });
+
+      // Increase agent's active load
       nearestAgent.activeDeliveries = (nearestAgent.activeDeliveries || 0) + 1;
       await nearestAgent.save();
       return true;
@@ -238,6 +244,15 @@ router.put('/:orderId/assign', verifyAdmin, async (req, res) => {
 
     order.deliveryAgent = agentId;
     order.status = 'Assigned';
+    
+    // CRITICAL FIX: Update the subOrders so the Admin UI sees the assignment!
+    order.subOrders.forEach(sub => {
+      sub.status = 'Assigned';
+    });
+
+    // Update agent's active load
+    await User.findByIdAndUpdate(agentId, { $inc: { activeDeliveries: 1 } });
+
     await order.save();
     res.status(200).json({ message: 'Agent assigned successfully!', order });
   } catch (err) { res.status(500).json({ message: 'Error assigning agent' }); }
