@@ -12,7 +12,9 @@ const userSchema = new mongoose.Schema({
   retailerCategory: { type: String },
   location: {
     type: { type: String, enum: ['Point'], default: 'Point' },
-    coordinates: { type: [Number], default: [0, 0] } // [longitude, latitude]
+    coordinates: { type: [Number], default: [0, 0] } // [longitude, latitude],
+    isOnline: { type: Boolean, default: false },
+activeDeliveries: { type: Number, default: 0 }
   },
   
   // CRITICAL FIX: Explicitly defined all the new address fields so MongoDB stops deleting them!
