@@ -25,7 +25,7 @@ export default function AdminApp() {
   const API_URL = import.meta.env.VITE_API_URL;
   const getAuth = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
 
- useEffect(() => {
+  useEffect(() => {
     setMessage('');
     
     // Initial fetch
@@ -115,7 +115,6 @@ export default function AdminApp() {
     if (payload.category === 'CUSTOM') payload.category = payload.customCategory;
 
     try {
-      // Assuming your backend has a PUT route for master-products/:id
       await axios.put(`${API_URL}/api/admin/master-products/${editingMaster._id}`, payload, getAuth());
       setMessage('Master Product Updated Successfully!');
       setEditingMaster(null);
@@ -130,6 +129,19 @@ export default function AdminApp() {
   const handleUpdateUser = async (e) => {
     e.preventDefault();
     try { await axios.put(`${API_URL}/api/admin/users/${editingUser._id}`, editingUser, getAuth()); setEditingUser(null); fetchUsers(); } catch (err) {}
+  };
+
+  // NEW: ASSIGN AGENT FUNCTION
+  const handleAssignAgent = async (orderId, agentId) => {
+    if (!agentId) return;
+    try {
+      await axios.put(`${API_URL}/api/orders/${orderId}/assign`, { agentId }, getAuth());
+      setMessage('Fleet Agent Successfully Dispatched!');
+      fetchGlobalOrders(); 
+      setTimeout(() => setMessage(''), 3000);
+    } catch (err) {
+      setMessage('Failed to assign agent.');
+    }
   };
 
   // --- DATA AGGREGATIONS FOR SUMMARY & ORDERS ---
@@ -149,7 +161,7 @@ export default function AdminApp() {
             sub.items.forEach(item => { const qty = item.cartQty || 1; subOurPrice += (item.price || 0) * qty; subTheirPrice += (item.retailerPrice || item.price || 0) * qty; });
           }
           orderItemsTotalOurPrice += subOurPrice; groupedOrders[rId].totalOurPrice += subOurPrice; groupedOrders[rId].totalTheirPrice += subTheirPrice; totalPlatformMarginItems += (subOurPrice - subTheirPrice);
-          groupedOrders[rId].subOrders.push({ parentOrderId: order.orderId, date: order.createdAt, customerName: order.customerId?.name || 'Unknown', status: sub.status, items: sub.items || [], ourPrice: subOurPrice, theirPrice: subTheirPrice });
+          groupedOrders[rId].subOrders.push({ parentOrderId: order._id, date: order.createdAt, customerName: order.customerId?.name || 'Unknown', status: sub.status, items: sub.items || [], ourPrice: subOurPrice, theirPrice: subTheirPrice });
         });
       }
       totalCustomerPaid += (order.totalAmount || 0);
@@ -258,10 +270,10 @@ export default function AdminApp() {
               <button onClick={() => setOrderFilter({startDate: '', endDate: '', retailerId: ''})} className="text-indigo-600 font-bold ml-2 text-sm hover:underline py-2">Clear Filters</button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-               <div className="bg-indigo-600 text-white p-6 rounded-2xl shadow-lg"><p className="text-indigo-200 font-bold text-xs uppercase tracking-wider mb-2">Total Customer Paid</p><p className="text-4xl font-black">₹{totalCustomerPaid}</p></div>
-               <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200"><p className="text-gray-500 font-bold text-xs uppercase tracking-wider mb-2">Total Retailer Revenue</p><p className="text-4xl font-black text-blue-600">₹{Object.values(groupedOrders).reduce((acc, r) => acc + r.totalTheirPrice, 0)}</p></div>
-               <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200"><p className="text-gray-500 font-bold text-xs uppercase tracking-wider mb-2">Delivery Fees Collected</p><p className="text-4xl font-black text-purple-600">₹{totalPlatformDeliveryFees}</p></div>
-               <div className="bg-green-50 p-6 rounded-2xl shadow-sm border border-green-200"><p className="text-green-700 font-bold text-xs uppercase tracking-wider mb-2">Platform Margin (Items + Fees)</p><p className="text-4xl font-black text-green-700">₹{totalPlatformMarginItems + totalPlatformDeliveryFees}</p></div>
+              <div className="bg-indigo-600 text-white p-6 rounded-2xl shadow-lg"><p className="text-indigo-200 font-bold text-xs uppercase tracking-wider mb-2">Total Customer Paid</p><p className="text-4xl font-black">₹{totalCustomerPaid}</p></div>
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200"><p className="text-gray-500 font-bold text-xs uppercase tracking-wider mb-2">Total Retailer Revenue</p><p className="text-4xl font-black text-blue-600">₹{Object.values(groupedOrders).reduce((acc, r) => acc + r.totalTheirPrice, 0)}</p></div>
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200"><p className="text-gray-500 font-bold text-xs uppercase tracking-wider mb-2">Delivery Fees Collected</p><p className="text-4xl font-black text-purple-600">₹{totalPlatformDeliveryFees}</p></div>
+              <div className="bg-green-50 p-6 rounded-2xl shadow-sm border border-green-200"><p className="text-green-700 font-bold text-xs uppercase tracking-wider mb-2">Platform Margin (Items + Fees)</p><p className="text-4xl font-black text-green-700">₹{totalPlatformMarginItems + totalPlatformDeliveryFees}</p></div>
             </div>
             <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
               <div className="p-5 border-b bg-gray-50"><h3 className="font-bold text-lg text-gray-800">Revenue Breakdown by Retailer</h3></div>
@@ -280,7 +292,7 @@ export default function AdminApp() {
           </div>
         )}
 
-        {/* TAB 2: LIVE ORDERS */}
+        {/* TAB 2: LIVE ORDERS (UPDATED WITH DROPDOWN) */}
         {activeTab === 'orders' && (
           <div className="animate-fade-in">
             <h2 className="text-2xl font-bold mb-6">Fulfillment Dashboard</h2>
@@ -305,20 +317,35 @@ export default function AdminApp() {
                   <h3 className="text-xl font-black text-indigo-900 mb-4 pl-2">{rData.shopName}</h3>
                   <div className="overflow-x-auto pl-2">
                     <table className="w-full text-left border-collapse">
-                       <thead><tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider"><th className="p-3 border-b">Order Date</th><th className="p-3 border-b">Order ID</th><th className="p-3 border-b">Customer</th><th className="p-3 border-b">Items</th><th className="p-3 border-b">Their Price</th><th className="p-3 border-b">Our Price</th><th className="p-3 border-b">Status</th></tr></thead>
-                       <tbody>
-                         {rData.subOrders.map((so, idx) => (
-                            <tr key={idx} className="hover:bg-gray-50 text-sm">
-                               <td className="p-3 border-b text-gray-600 font-medium whitespace-nowrap">{new Date(so.date).toLocaleString()}</td>
-                               <td className="p-3 border-b font-mono font-bold text-gray-400">{so.parentOrderId}</td>
-                               <td className="p-3 border-b font-bold text-gray-700">{so.customerName}</td>
-                               <td className="p-3 border-b text-gray-600">{so.items.map(i => `${i.cartQty||1}x ${i.name}`).join(', ')}</td>
-                               <td className="p-3 border-b text-blue-600 font-bold">₹{so.theirPrice}</td>
-                               <td className="p-3 border-b text-green-600 font-bold">₹{so.ourPrice}</td>
-                               <td className="p-3 border-b"><span className={`px-2 py-1 rounded-full text-[10px] uppercase font-bold tracking-wider ${so.status==='Accepted'?'bg-green-100 text-green-700':so.status==='Pending'?'bg-yellow-100 text-yellow-700':so.status.includes('Cancel')?'bg-red-100 text-red-700':'bg-gray-100'}`}>{so.status}</span></td>
-                            </tr>
-                         ))}
-                       </tbody>
+                      <thead><tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider"><th className="p-3 border-b">Order Date</th><th className="p-3 border-b">Order ID</th><th className="p-3 border-b">Customer</th><th className="p-3 border-b">Items</th><th className="p-3 border-b">Their Price</th><th className="p-3 border-b">Our Price</th><th className="p-3 border-b">Status</th></tr></thead>
+                      <tbody>
+                        {rData.subOrders.map((so, idx) => (
+                          <tr key={idx} className="hover:bg-gray-50 text-sm">
+                            <td className="p-3 border-b text-gray-600 font-medium whitespace-nowrap">{new Date(so.date).toLocaleString()}</td>
+                            <td className="p-3 border-b font-mono font-bold text-gray-400">{so.parentOrderId?.slice(-6).toUpperCase() || 'N/A'}</td>
+                            <td className="p-3 border-b font-bold text-gray-700">{so.customerName}</td>
+                            <td className="p-3 border-b text-gray-600">{so.items.map(i => `${i.cartQty||1}x ${i.name}`).join(', ')}</td>
+                            <td className="p-3 border-b text-blue-600 font-bold">₹{so.theirPrice}</td>
+                            <td className="p-3 border-b text-green-600 font-bold">₹{so.ourPrice}</td>
+                            <td className="p-3 border-b">
+                              {so.status === 'Pending' ? (
+                                <select 
+                                  className="text-[10px] font-bold border-2 border-indigo-200 rounded p-1 outline-none focus:border-indigo-500 bg-indigo-50 text-indigo-700 uppercase"
+                                  onChange={(e) => handleAssignAgent(so.parentOrderId, e.target.value)}
+                                  defaultValue=""
+                                >
+                                  <option value="" disabled>Assign Fleet...</option>
+                                  {agentsOnly.map(agent => (
+                                    <option key={agent._id} value={agent._id}>{agent.name}</option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <span className={`px-2 py-1 rounded-full text-[10px] uppercase font-bold tracking-wider ${so.status==='Assigned'?'bg-blue-100 text-blue-700':so.status==='Picked_Up'?'bg-yellow-100 text-yellow-700':so.status==='Delivered'?'bg-green-100 text-green-700':so.status.includes('Cancel')?'bg-red-100 text-red-700':'bg-gray-100'}`}>{so.status.replace('_', ' ')}</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
                     </table>
                   </div>
                 </div>
@@ -390,7 +417,7 @@ export default function AdminApp() {
                   </div>
 
                   {staffForm.retailerCategory === 'CUSTOM' && (
-                     <input type="text" placeholder="Type Custom Category Name" required value={staffForm.customCategory} onChange={(e) => setStaffForm({...staffForm, customCategory: e.target.value})} className="w-full p-3 border rounded-lg outline-none bg-white" />
+                    <input type="text" placeholder="Type Custom Category Name" required value={staffForm.customCategory} onChange={(e) => setStaffForm({...staffForm, customCategory: e.target.value})} className="w-full p-3 border rounded-lg outline-none bg-white" />
                   )}
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -411,8 +438,8 @@ export default function AdminApp() {
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 animate-fade-in">
             <h2 className="text-2xl font-bold mb-6">Platform Users Directory</h2>
             <div className="flex flex-wrap gap-4 mb-6">
-               <div className="relative flex-1 min-w-[250px]"><Search className="w-5 h-5 absolute left-3 top-3 text-gray-400" /><input type="text" placeholder="Search by name, email, shop, or phone..." value={userSearch} onChange={e=>setUserSearch(e.target.value)} className="w-full pl-10 pr-4 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 bg-gray-50" /></div>
-               <select value={userRoleFilter} onChange={e=>setUserRoleFilter(e.target.value)} className="border p-2 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 bg-white min-w-[150px]"><option value="All">All Roles</option><option value="customer">Customers</option><option value="retailer">Retailers</option><option value="delivery_agent">Delivery Agents</option></select>
+              <div className="relative flex-1 min-w-[250px]"><Search className="w-5 h-5 absolute left-3 top-3 text-gray-400" /><input type="text" placeholder="Search by name, email, shop, or phone..." value={userSearch} onChange={e=>setUserSearch(e.target.value)} className="w-full pl-10 pr-4 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 bg-gray-50" /></div>
+              <select value={userRoleFilter} onChange={e=>setUserRoleFilter(e.target.value)} className="border p-2 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 bg-white min-w-[150px]"><option value="All">All Roles</option><option value="customer">Customers</option><option value="retailer">Retailers</option><option value="delivery_agent">Delivery Agents</option></select>
             </div>
             <div className="overflow-x-auto border rounded-xl">
               <table className="w-full text-left border-collapse">
@@ -448,7 +475,7 @@ export default function AdminApp() {
               </select>
 
               {masterForm.category === 'CUSTOM' && (
-                 <input type="text" placeholder="Type Custom Category Name" required value={masterForm.customCategory} onChange={(e) => setMasterForm({...masterForm, customCategory: e.target.value})} className="md:col-span-2 p-3 border rounded-lg outline-none bg-white" />
+                <input type="text" placeholder="Type Custom Category Name" required value={masterForm.customCategory} onChange={(e) => setMasterForm({...masterForm, customCategory: e.target.value})} className="md:col-span-2 p-3 border rounded-lg outline-none bg-white" />
               )}
 
               <input type="text" placeholder="Description" value={masterForm.description} onChange={(e) => setMasterForm({...masterForm, description: e.target.value})} className="p-3 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 md:col-span-2" />
