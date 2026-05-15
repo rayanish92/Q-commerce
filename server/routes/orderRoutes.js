@@ -6,7 +6,7 @@ const { verifyRetailerOrAdmin, verifyToken, verifyAdmin } = require('../middlewa
 
 const router = express.Router();
 
-// Helper: Haversine Distance Formula (calculates KM between two GPS coordinates)
+// Helper: Haversine Distance Formula
 const calcDist = (lat1, lon1, lat2, lon2) => {
   const p = 0.017453292519943295;
   const c = Math.cos;
@@ -22,11 +22,9 @@ const findNearestRetailerForItems = async (items, lng, lat, excludeRetailerIds =
   });
   
   let allocations = {}, unallocated = [];
-
   for (let item of items) {
     let allocated = false;
     const requestedQty = Number(item.cartQty || item.quantity || 1);
-
     for (let retailer of nearbyRetailers) {
       const productRecord = await Product.findOne({ retailerId: retailer._id, name: item.name, status: 'Approved', quantity: { $gte: requestedQty } });
       if (productRecord) {
@@ -41,44 +39,44 @@ const findNearestRetailerForItems = async (items, lng, lat, excludeRetailerIds =
 };
 
 // =========================================================
-// AUTO-ASSIGNMENT ALGORITHM (FIXED)
+// FIXED AUTO-ASSIGNMENT WITH DEBUG LOGS
 // =========================================================
 const autoAssignAgent = async (order, retailerId) => {
   try {
     const retailer = await User.findById(retailerId);
-    if (!retailer || !retailer.location) return false;
+    if (!retailer || !retailer.location || !retailer.location.coordinates) {
+      console.log("Auto-Assign Skip: Retailer has no GPS coordinates set.");
+      return false;
+    }
 
     const [lng, lat] = retailer.location.coordinates;
+    console.log(`Auto-Assigning for Retailer at: ${lat}, ${lng}`);
 
-    // Find the nearest ONLINE agent within 5km (5000 meters)
+    // Search for nearest delivery_agent who is isOnline: true
     const nearestAgent = await User.findOne({
       role: 'delivery_agent',
       isOnline: true,
       location: {
         $near: {
           $geometry: { type: "Point", coordinates: [lng, lat] },
-          $maxDistance: 5000 
+          $maxDistance: 10000 // Increased to 10km for easier testing
         }
       }
     });
 
     if (nearestAgent) {
+      console.log(`Success: Found Agent ${nearestAgent.name} within 10km.`);
       order.deliveryAgent = nearestAgent._id;
       order.status = 'Assigned';
-      
-      // CRITICAL FIX: Update the subOrders so the Admin UI sees the assignment!
-      order.subOrders.forEach(sub => {
-        sub.status = 'Assigned';
-      });
-
-      // Increase agent's active load
-      nearestAgent.activeDeliveries = (nearestAgent.activeDeliveries || 0) + 1;
-      await nearestAgent.save();
+      order.subOrders.forEach(sub => { sub.status = 'Assigned'; });
+      await User.findByIdAndUpdate(nearestAgent._id, { $inc: { activeDeliveries: 1 } });
       return true;
+    } else {
+      console.log("Auto-Assign Failed: No ONLINE delivery agents found within 10km.");
+      return false;
     }
-    return false; // No agents nearby or online
   } catch (err) {
-    console.error("Auto-assign algorithm failed:", err);
+    console.error("CRITICAL AUTO-ASSIGN ERROR:", err);
     return false;
   }
 };
@@ -88,9 +86,7 @@ router.post('/estimate-fee', verifyToken, async (req, res) => {
   try {
     const { items, lat, lng } = req.body;
     const { allocations } = await findNearestRetailerForItems(items, lng, lat, []);
-    
     if (Object.keys(allocations).length === 0) return res.json({ fee: 0, possible: false });
-    
     let maxDist = 0;
     for (const rId of Object.keys(allocations)) {
        const retailer = await User.findById(rId);
@@ -99,10 +95,8 @@ router.post('/estimate-fee', verifyToken, async (req, res) => {
          if (d > maxDist) maxDist = d;
        }
     }
-    
-    let fee = 25; // Base fee for 0-3km
-    if (maxDist > 3) fee += Math.ceil(maxDist - 3) * 1; // +1 Rupee per extra KM
-    
+    let fee = 25;
+    if (maxDist > 3) fee += Math.ceil(maxDist - 3) * 1;
     res.json({ fee, possible: true });
   } catch(err) { res.status(500).json({fee: 25, possible: false}); }
 });
@@ -111,31 +105,21 @@ router.post('/create', verifyToken, async (req, res) => {
   try {
     const { items, totalAmount, paymentMethod, deliveryAddress, lat, lng } = req.body;
     const { allocations, unallocated } = await findNearestRetailerForItems(items, lng, lat, []);
-    
     let subOrders = [];
     for (const [retailerId, retailItems] of Object.entries(allocations)) {
       subOrders.push({ retailerId, items: retailItems, status: 'Pending' });
     }
-
     let finalStatus = 'Order Placed';
     if (unallocated.length > 0 && subOrders.length > 0) finalStatus = 'Partially Placed';
     if (subOrders.length === 0) finalStatus = 'Cancelled - No Nearby Stock';
-
     const newOrder = new Order({
       orderId: `ORD-${Date.now().toString().slice(-6)}`,
       customerId: req.user.id, 
       totalAmount, paymentMethod, deliveryAddress,
       location: { type: 'Point', coordinates: [lng, lat] },
-      subOrders, 
-      status: finalStatus
+      subOrders, status: finalStatus
     });
-    
     await newOrder.save();
-    
-    if (finalStatus.includes('Cancelled')) {
-      return res.status(400).json({ message: 'Order Cancelled: Items not available nearby.', order: newOrder });
-    }
-
     res.status(201).json({ order: newOrder, unallocated });
   } catch (err) { res.status(500).json({ message: 'Failed to place order' }); }
 });
@@ -168,13 +152,11 @@ router.put('/:orderId/suborder/:subOrderId', verifyRetailerOrAdmin, async (req, 
     if (action === 'Accept') {
       subOrder.status = 'Accepted';
       const allResolved = order.subOrders.every(s => s.status !== 'Pending');
-      
       if (allResolved) {
         order.status = 'Accepted by Store';
-        // TRIGGER AUTO-ASSIGNMENT HERE!
+        // Auto-assignment happens here
         await autoAssignAgent(order, req.user.id); 
       }
-
       for (let item of subOrder.items) {
         const qtyToDeduct = Number(item.cartQty || item.quantity || 1);
         await Product.findOneAndUpdate({ retailerId: req.user.id, name: item.name }, { $inc: { quantity: -qtyToDeduct } });
@@ -183,7 +165,6 @@ router.put('/:orderId/suborder/:subOrderId', verifyRetailerOrAdmin, async (req, 
       subOrder.status = 'Rejected';
       const [lng, lat] = order.location.coordinates;
       const { allocations } = await findNearestRetailerForItems(subOrder.items, lng, lat, [req.user.id]);
-      
       if (Object.keys(allocations).length > 0) {
         for (const [newRetailerId, newItems] of Object.entries(allocations)) {
           order.subOrders.push({ retailerId: newRetailerId, items: newItems, status: 'Pending' });
@@ -200,101 +181,57 @@ router.put('/:orderId/suborder/:subOrderId', verifyRetailerOrAdmin, async (req, 
 
 router.get('/all-orders', verifyAdmin, async (req, res) => {
   try {
-    const { retailerId, startDate, endDate, location } = req.query;
-    let query = {};
-    if (startDate && endDate) query.createdAt = { $gte: new Date(startDate), $lte: new Date(new Date(endDate).setHours(23, 59, 59)) };
-    if (retailerId) query['subOrders.retailerId'] = retailerId;
-    if (location) query.deliveryAddress = { $regex: location, $options: 'i' };
-    const orders = await Order.find(query).populate('customerId', 'name email contactNumber').populate('subOrders.retailerId', 'shopName location').sort({ createdAt: -1 });
+    const orders = await Order.find().populate('customerId', 'name').populate('subOrders.retailerId', 'shopName').sort({ createdAt: -1 });
     res.status(200).json(orders);
   } catch (err) { res.status(500).json({ message: 'Error fetching global orders' }); }
 });
 
-// =========================================================
-// AGENT AND DELIVERY LOGIC
-// =========================================================
-
-// Agent Toggles Online/Offline Status and updates GPS location
+// AGENT ROUTES
 router.put('/agent/status', verifyToken, async (req, res) => {
   try {
     const { isOnline, lat, lng } = req.body;
-    const agent = await User.findById(req.user.id);
-    if (!agent) return res.status(404).json({ message: 'Agent not found' });
-
-    agent.isOnline = isOnline;
-    if (lat && lng) {
-      agent.location = { type: 'Point', coordinates: [lng, lat] };
-    }
-    
-    await agent.save();
-    res.status(200).json({ message: 'Status updated', isOnline: agent.isOnline });
-  } catch (err) {
-    res.status(500).json({ message: 'Error updating agent status' });
-  }
+    await User.findByIdAndUpdate(req.user.id, { isOnline, location: { type: 'Point', coordinates: [lng, lat] } });
+    res.status(200).json({ message: 'Status updated' });
+  } catch (err) { res.status(500).json({ message: 'Error' }); }
 });
 
-// Admin manually assigns an order to a delivery agent
 router.put('/:orderId/assign', verifyAdmin, async (req, res) => {
   try {
-    const { orderId } = req.params;
     const { agentId } = req.body;
-    
-    const order = await Order.findById(orderId);
-    if (!order) return res.status(404).json({ message: 'Order not found' });
-
+    const order = await Order.findById(req.params.orderId);
     order.deliveryAgent = agentId;
     order.status = 'Assigned';
-    
-    // CRITICAL FIX: Update the subOrders so the Admin UI sees the assignment!
-    order.subOrders.forEach(sub => {
-      sub.status = 'Assigned';
-    });
-
-    // Update agent's active load
-    await User.findByIdAndUpdate(agentId, { $inc: { activeDeliveries: 1 } });
-
+    order.subOrders.forEach(s => s.status = 'Assigned');
     await order.save();
-    res.status(200).json({ message: 'Agent assigned successfully!', order });
-  } catch (err) { res.status(500).json({ message: 'Error assigning agent' }); }
+    await User.findByIdAndUpdate(agentId, { $inc: { activeDeliveries: 1 } });
+    res.status(200).json({ message: 'Assigned' });
+  } catch (err) { res.status(500).json({ message: 'Error' }); }
 });
 
-// Agent fetches their specific assigned deliveries
 router.get('/agent-deliveries', verifyToken, async (req, res) => {
   try {
-    const orders = await Order.find({ deliveryAgent: req.user.id })
-      .populate('customerId', 'name address contactNumber')
-      .populate('subOrders.retailerId', 'shopName address location contactNumber')
-      .sort({ createdAt: -1 });
-
-    const mappedOrders = orders.map(order => {
-      const o = order.toObject();
-      o.retailerId = o.subOrders && o.subOrders.length > 0 ? o.subOrders[0].retailerId : null;
-      return o;
+    const orders = await Order.find({ deliveryAgent: req.user.id }).populate('customerId').populate('subOrders.retailerId').sort({ createdAt: -1 });
+    const mapped = orders.map(o => {
+      const obj = o.toObject();
+      obj.retailerId = obj.subOrders[0]?.retailerId;
+      return obj;
     });
-
-    res.status(200).json(mappedOrders);
-  } catch (err) { res.status(500).json({ message: 'Error fetching agent deliveries' }); }
+    res.status(200).json(mapped);
+  } catch (err) { res.status(500).json({ message: 'Error' }); }
 });
 
-// Agent updates the order status (Picked Up -> Delivered)
 router.put('/:orderId/status', verifyToken, async (req, res) => {
   try {
-    const { orderId } = req.params;
     const { status } = req.body;
-    
-    const order = await Order.findById(orderId);
-    if (!order) return res.status(404).json({ message: 'Order not found' });
-
+    const order = await Order.findById(req.params.orderId);
     order.status = status;
     if (status === 'Delivered') {
-      order.subOrders.forEach(sub => sub.status = 'Delivered');
-      // Free up the agent's active load so they can take more orders
+      order.subOrders.forEach(s => s.status = 'Delivered');
       await User.findByIdAndUpdate(order.deliveryAgent, { $inc: { activeDeliveries: -1 } });
     }
-
     await order.save();
-    res.status(200).json({ message: `Order status updated to ${status}`, order });
-  } catch (err) { res.status(500).json({ message: 'Error updating order status' }); }
+    res.status(200).json({ message: 'Updated' });
+  } catch (err) { res.status(500).json({ message: 'Error' }); }
 });
 
 module.exports = router;
