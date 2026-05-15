@@ -299,7 +299,7 @@ export default function AdminApp() {
           </div>
         )}
 
-        {/* TAB 2: LIVE ORDERS */}
+        {/* TAB 2: LIVE ORDERS (FIXED MANUAL ASSIGN LOGIC) */}
         {activeTab === 'orders' && (
           <div className="animate-fade-in">
             <h2 className="text-2xl font-bold mb-6">Fulfillment Dashboard</h2>
@@ -335,7 +335,8 @@ export default function AdminApp() {
                             <td className="p-3 border-b text-blue-600 font-bold">₹{so.theirPrice}</td>
                             <td className="p-3 border-b text-green-600 font-bold">₹{so.ourPrice}</td>
                             <td className="p-3 border-b">
-                              {so.status === 'Pending' ? (
+                              {/* CRITICAL FIX: Only show dropdown if Retailer has Accepted the order! */}
+                              {so.status === 'Accepted' ? (
                                 <select 
                                   className="text-[10px] font-bold border-2 border-indigo-200 rounded p-1 outline-none focus:border-indigo-500 bg-indigo-50 text-indigo-700 uppercase"
                                   onChange={(e) => handleAssignAgent(so.parentOrderId, e.target.value)}
@@ -343,11 +344,20 @@ export default function AdminApp() {
                                 >
                                   <option value="" disabled>Assign Fleet...</option>
                                   {agentsOnly.map(agent => (
-                                    <option key={agent._id} value={agent._id}>{agent.name}</option>
+                                    <option key={agent._id} value={agent._id}>
+                                      {agent.name} {agent.isOnline ? '(Online)' : '(Offline)'}
+                                    </option>
                                   ))}
                                 </select>
                               ) : (
-                                <span className={`px-2 py-1 rounded-full text-[10px] uppercase font-bold tracking-wider ${so.status==='Assigned'?'bg-blue-100 text-blue-700':so.status==='Picked_Up'?'bg-yellow-100 text-yellow-700':so.status==='Delivered'?'bg-green-100 text-green-700':so.status.includes('Cancel')?'bg-red-100 text-red-700':'bg-gray-100'}`}>{so.status.replace('_', ' ')}</span>
+                                <span className={`px-2 py-1 rounded-full text-[10px] uppercase font-bold tracking-wider ${
+                                  so.status==='Assigned' ? 'bg-blue-100 text-blue-700' :
+                                  so.status==='Picked_Up' ? 'bg-yellow-100 text-yellow-700' :
+                                  so.status==='Delivered' ? 'bg-green-100 text-green-700' :
+                                  so.status.includes('Cancel') ? 'bg-red-100 text-red-700' : 'bg-gray-100'
+                                }`}>
+                                  {so.status.replace('_', ' ')}
+                                </span>
                               )}
                             </td>
                           </tr>
@@ -361,14 +371,19 @@ export default function AdminApp() {
           </div>
         )}
 
-        {/* TAB 3: LOGISTICS / DELIVERY AGENTS */}
+        {/* TAB 3: LOGISTICS / DELIVERY AGENTS (FIXED LIVE COUNTERS) */}
         {activeTab === 'agents' && (
           <div className="animate-fade-in">
             <h2 className="text-2xl font-bold mb-2 text-gray-800">Delivery Fleet Tracker</h2>
             <p className="text-gray-500 mb-6">Manage agents, monitor active attendance, and track per-delivery payouts (₹15/delivery).</p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+              <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 flex items-center justify-between"><div className="font-bold text-gray-500 uppercase text-xs">Total Agents</div><div className="text-2xl font-black text-indigo-600">{agentsOnly.length}</div></div>
+              <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 flex items-center justify-between"><div className="font-bold text-gray-500 uppercase text-xs">Active Today</div><div className="text-2xl font-black text-green-500">{agentsOnly.filter(a => a.isOnline).length}</div></div>
+              <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 flex items-center justify-between"><div className="font-bold text-gray-500 uppercase text-xs">Total Fleet Payouts</div><div className="text-2xl font-black text-purple-600">₹0</div></div>
+            </div>
             <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
               <table className="w-full text-left border-collapse">
-                <thead><tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider"><th className="p-4 border-b">Agent Name</th><th className="p-4 border-b">Contact</th><th className="p-4 border-b">Joined Date</th><th className="p-4 border-b">Deliveries Completed</th><th className="p-4 border-b">Status</th></tr></thead>
+                <thead><tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider"><th className="p-4 border-b">Agent Name</th><th className="p-4 border-b">Contact</th><th className="p-4 border-b">Joined Date</th><th className="p-4 border-b">Active Tasks</th><th className="p-4 border-b">Status</th></tr></thead>
                 <tbody>
                   {agentsOnly.length === 0 && <tr><td colSpan="5" className="p-8 text-center font-bold text-gray-400">No delivery agents registered yet.</td></tr>}
                   {agentsOnly.map(agent => (
@@ -376,8 +391,14 @@ export default function AdminApp() {
                       <td className="p-4 border-b font-bold text-gray-800">{agent.name}</td>
                       <td className="p-4 border-b text-gray-600">{agent.contactNumber || 'N/A'}</td>
                       <td className="p-4 border-b text-gray-500">{new Date(agent.createdAt).toLocaleDateString()}</td>
-                      <td className="p-4 border-b font-bold text-indigo-600">0</td>
-                      <td className="p-4 border-b"><span className="bg-gray-200 text-gray-600 px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider">Offline</span></td>
+                      
+                      {/* CRITICAL FIX: Dynamically read agent data instead of hardcoding zero/offline! */}
+                      <td className="p-4 border-b font-bold text-indigo-600">{agent.activeDeliveries || 0}</td>
+                      <td className="p-4 border-b">
+                        <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider ${agent.isOnline ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-600'}`}>
+                          {agent.isOnline ? 'Online' : 'Offline'}
+                        </span>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -386,7 +407,7 @@ export default function AdminApp() {
           </div>
         )}
 
-        {/* TAB 4: CREATE STAFF (UPDATED TO SHOW LOCATION FOR AGENTS TOO) */}
+        {/* TAB 4: CREATE STAFF */}
         {activeTab === 'staff' && (
           <div className="bg-white p-6 rounded-2xl shadow-sm max-w-2xl border border-gray-100 animate-fade-in">
             <h2 className="text-2xl font-bold mb-6 border-b pb-2">Generate Platform Credentials</h2>
@@ -424,7 +445,7 @@ export default function AdminApp() {
                 </div>
               )}
 
-              {/* LOCATION FIELDS (NOW VISIBLE FOR BOTH RETAILER AND DELIVERY AGENT) */}
+              {/* LOCATION FIELDS */}
               {(staffForm.role === 'retailer' || staffForm.role === 'delivery_agent') && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-gray-50 p-4 rounded-lg border border-gray-200">
                   <p className="md:col-span-2 text-xs font-bold text-gray-500 uppercase">Geographic Location</p>
@@ -439,7 +460,7 @@ export default function AdminApp() {
           </div>
         )}
 
-        {/* TAB 5: USERS DIRECTORY (UPDATED WITH EDIT & DELETE) */}
+        {/* TAB 5: USERS DIRECTORY */}
         {activeTab === 'users' && (
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 animate-fade-in">
             <h2 className="text-2xl font-bold mb-6">Platform Users Directory</h2>
@@ -459,8 +480,6 @@ export default function AdminApp() {
                       <td className="p-3 border-b text-gray-600">{user.shopName ? <span className="font-bold text-indigo-700 block">{user.shopName}</span> : null}<span className="text-xs">{user.contactNumber || 'No Phone'}</span></td>
                       <td className="p-3 border-b text-gray-500">{user.email}</td>
                       <td className="p-3 border-b font-mono text-[10px] text-gray-400">{user.location?.coordinates?.[1] ? `${user.location.coordinates[1].toFixed(4)}, ${user.location.coordinates[0].toFixed(4)}` : 'N/A'}</td>
-                      
-                      {/* ACTION BUTTONS: EDIT & DELETE */}
                       <td className="p-3 border-b">
                         <div className="flex justify-center gap-2">
                           <button onClick={() => setEditingUser(user)} className="bg-indigo-50 text-indigo-600 p-2 rounded hover:bg-indigo-100 transition" title="Edit User">
