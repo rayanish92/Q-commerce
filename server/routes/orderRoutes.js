@@ -163,4 +163,77 @@ router.get('/all-orders', verifyAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ message: 'Error fetching global orders' }); }
 });
 
+// =========================================================
+// NEW: AGENT AND DELIVERY LOGIC
+// =========================================================
+
+// 1. Admin assigns an order to a delivery agent
+router.put('/:orderId/assign', verifyAdmin, async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { agentId } = req.body;
+    
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+
+    // Assign the agent and update main order status
+    order.deliveryAgent = agentId;
+    order.status = 'Assigned';
+    
+    await order.save();
+    res.status(200).json({ message: 'Agent assigned successfully!', order });
+  } catch (err) { 
+    console.error(err);
+    res.status(500).json({ message: 'Error assigning agent' }); 
+  }
+});
+
+// 2. Agent fetches their specific assigned deliveries
+router.get('/agent-deliveries', verifyToken, async (req, res) => {
+  try {
+    const orders = await Order.find({ deliveryAgent: req.user.id })
+      .populate('customerId', 'name address contactNumber')
+      .populate('subOrders.retailerId', 'shopName address location contactNumber')
+      .sort({ createdAt: -1 });
+
+    // Map the orders so the AgentApp can easily read the primary retailer info
+    const mappedOrders = orders.map(order => {
+      const o = order.toObject();
+      // Attach the first subOrder's retailer to the main object for easy UI mapping
+      o.retailerId = o.subOrders && o.subOrders.length > 0 ? o.subOrders[0].retailerId : null;
+      return o;
+    });
+
+    res.status(200).json(mappedOrders);
+  } catch (err) { 
+    console.error(err);
+    res.status(500).json({ message: 'Error fetching agent deliveries' }); 
+  }
+});
+
+// 3. Agent updates the order status (e.g., Picked Up -> Delivered)
+router.put('/:orderId/status', verifyToken, async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { status } = req.body;
+    
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+
+    // Update the master order status
+    order.status = status;
+    
+    // If it's delivered, we can optionally mark all sub-orders as delivered too
+    if (status === 'Delivered') {
+      order.subOrders.forEach(sub => sub.status = 'Delivered');
+    }
+
+    await order.save();
+    res.status(200).json({ message: `Order status updated to ${status}`, order });
+  } catch (err) { 
+    console.error(err);
+    res.status(500).json({ message: 'Error updating order status' }); 
+  }
+});
+
 module.exports = router;
