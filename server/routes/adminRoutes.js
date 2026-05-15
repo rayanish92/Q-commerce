@@ -91,4 +91,14 @@ router.put('/master-products/:id', verifyAdmin, async (req, res) => {
   }
 });
 
+// DELETE A USER
+router.delete('/users/:id', verifyAdmin, async (req, res) => {
+  try {
+    await User.findByIdAndDelete(req.params.id);
+    res.status(200).json({ message: 'User permanently deleted' });
+  } catch (error) {
+    res.status(500).json({ message: 'Error deleting user' });
+  }
+});
+
 module.exports = router;
