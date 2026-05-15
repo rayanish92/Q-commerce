@@ -19,7 +19,7 @@ export default function RetailerApp() {
   const [bankDetails, setBankDetails] = useState({ accountName: '', accountNumber: '', ifscCode: '' });
   const [dateFilter, setDateFilter] = useState({ startDate: '', endDate: '' });
 
-  const API_URL = import.meta.env.VITE_API_URL;
+  const API_URL = import.meta.env.VITE_API_URL || '';
   const getAuth = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
 
   // ---------------------------------------------------------
@@ -53,7 +53,9 @@ export default function RetailerApp() {
       setMasterProducts(master.data || []); 
       setRetailerUser(user.data);
       if(user.data.bankDetails) setBankDetails(user.data.bankDetails);
-    } catch (err) {}
+    } catch (err) {
+      console.error("Fetch Data Error:", err);
+    }
   };
 
   const fetchOrders = async () => {
@@ -61,7 +63,9 @@ export default function RetailerApp() {
       const query = dateFilter.startDate && dateFilter.endDate ? `?startDate=${dateFilter.startDate}&endDate=${dateFilter.endDate}` : '';
       const res = await axios.get(`${API_URL}/api/orders/retailer-orders${query}`, getAuth());
       setOrders(res.data || []);
-    } catch (err) {}
+    } catch (err) {
+      console.error("Fetch Orders Error:", err);
+    }
   };
 
   const baseCategories = ['Groceries', 'Vegetables', 'Fruits', 'Dairy', 'Snacks', 'Beverages', 'Pharmacy', 'Meat & Seafood', 'Bakery', 'Personal Care', 'Home & Kitchen'];
@@ -108,14 +112,21 @@ export default function RetailerApp() {
       setNewProduct({ name: '', description: '', retailerPrice: '', quantity: '', category: 'Groceries', customCategory: '', imageUrl: '' });
       setSearchTerm(''); fetchData(); setActiveTab('inventory');
       setTimeout(() => setMessage(''), 4000);
-    } catch (err) { setMessage('Failed to add product.'); }
+    } catch (err) { 
+      setMessage(err.response?.data?.message || 'Failed to add product.'); 
+      setTimeout(() => setMessage(''), 4000);
+    }
   };
 
   const handleUpdateQuantity = async (id, quantity) => {
+    if (quantity < 0) quantity = 0;
     try {
       const res = await axios.put(`${API_URL}/api/products/update-quantity/${id}`, { quantity }, getAuth());
       setProducts(products.map(p => p._id === id ? res.data : p));
-    } catch (err) {}
+    } catch (err) {
+      setMessage('Error updating quantity.');
+      setTimeout(() => setMessage(''), 3000);
+    }
   };
 
   const handleRequestPriceChange = async (id) => {
@@ -126,37 +137,65 @@ export default function RetailerApp() {
       setProducts(products.map(p => p._id === id ? res.data : p));
       setMessage('Price change request sent to Admin.');
       setTimeout(() => setMessage(''), 3000);
-    } catch (err) {}
+    } catch (err) {
+      setMessage('Error requesting price change.');
+      setTimeout(() => setMessage(''), 3000);
+    }
   };
 
-  // CRITICAL FIX: Optimistic UI Deletion
   const handleDelete = async (id) => {
     if (!window.confirm('Are you sure you want to permanently delete this product?')) return;
     
-    // 1. Instantly remove from the screen for the user
+    // Optimistic UI Deletion
+    const previousProducts = [...products];
     setProducts(products.filter(p => p._id !== id));
     
-    // 2. Tell the database to delete it
     try { 
       await axios.delete(`${API_URL}/api/products/delete/${id}`, getAuth()); 
     } catch (err) {
       alert("Failed to delete product from database.");
-      fetchData(); // If it fails, refresh to bring it back
+      setProducts(previousProducts); // Bring it back if it failed
     }
   };
 
   const handleUpdateBank = async (e) => {
     e.preventDefault();
-    try { await axios.put(`${API_URL}/api/auth/bank`, bankDetails, getAuth()); setMessage('Settlement Bank details updated successfully!'); setTimeout(() => setMessage(''), 3000); } catch (err) {}
+    try { 
+      await axios.put(`${API_URL}/api/auth/bank`, bankDetails, getAuth()); 
+      setMessage('Settlement Bank details updated successfully!'); 
+      setTimeout(() => setMessage(''), 3000); 
+    } catch (err) {
+      setMessage('Error saving bank details.');
+      setTimeout(() => setMessage(''), 3000);
+    }
   };
 
+  // ---------------------------------------------------------
+  // CRITICAL FIX: AGGRESSIVE ERROR HANDLING FOR ORDERS
+  // ---------------------------------------------------------
   const handleOrderAction = async (orderId, subOrderId, action) => {
+    if (!subOrderId) {
+      setMessage("Error: Sub-Order ID missing. Contact Admin to fix database sync.");
+      setTimeout(() => setMessage(''), 4000);
+      return;
+    }
+
     try {
       await axios.put(`${API_URL}/api/orders/${orderId}/suborder/${subOrderId}`, { action }, getAuth());
       setMessage(`Order ${action}ed successfully.`); 
-      fetchOrders(); fetchData(); setTimeout(() => setMessage(''), 3000);
-    } catch (err) {}
+      fetchOrders(); 
+      fetchData(); 
+      setTimeout(() => setMessage(''), 3000);
+    } catch (err) {
+      console.error(`Order ${action} Error:`, err);
+      // Show the exact backend error to the retailer!
+      setMessage(`Error: ${err.response?.data?.message || `Failed to ${action} order. Ensure your store GPS is set in Admin panel.`}`);
+      setTimeout(() => setMessage(''), 5000);
+    }
   };
+
+  // Helper to dynamically style error vs success messages
+  const isError = message.toLowerCase().includes('fail') || message.toLowerCase().includes('error');
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -178,7 +217,12 @@ export default function RetailerApp() {
       </div>
 
       <main className="max-w-6xl mx-auto p-4 mt-4 w-full">
-        {message && <div className="mb-6 p-4 rounded-lg bg-emerald-100 text-emerald-800 font-bold border border-emerald-200">{message}</div>}
+        {/* DYNAMIC MESSAGE BOX */}
+        {message && (
+          <div className={`mb-6 p-4 rounded-lg font-bold border ${isError ? 'bg-red-100 text-red-800 border-red-200' : 'bg-emerald-100 text-emerald-800 border-emerald-200'}`}>
+            {message}
+          </div>
+        )}
 
         {activeTab === 'inventory' && (
           <div className="bg-white p-6 rounded-xl shadow-sm border border-emerald-100">
