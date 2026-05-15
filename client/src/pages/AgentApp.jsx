@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { MapPin, Package, CheckCircle, Clock, IndianRupee, LogOut, User, Navigation, Phone, Power } from 'lucide-react';
+import { MapPin, Package, CheckCircle, Clock, IndianRupee, LogOut, User, Navigation, Phone, Power, Map } from 'lucide-react';
 
 export default function AgentApp() {
   const [activeTab, setActiveTab] = useState('deliveries');
   const [isOnline, setIsOnline] = useState(false);
   const [message, setMessage] = useState('');
+  
+  // NEW: Live Location State
+  const [liveLocation, setLiveLocation] = useState({ lat: null, lng: null });
   
   // Data States
   const [activeDeliveries, setActiveDeliveries] = useState([]);
@@ -16,7 +19,6 @@ export default function AgentApp() {
   const getAuth = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
 
   useEffect(() => {
-    // Initial fetch
     fetchAgentData();
     fetchDeliveries();
 
@@ -30,9 +32,19 @@ export default function AgentApp() {
 
   const fetchAgentData = async () => {
     try {
-      // Adjust this endpoint based on your backend setup
       const res = await axios.get(`${API_URL}/api/auth/me`, getAuth());
-      if (res.data) setAgentProfile(res.data);
+      if (res.data) {
+        setAgentProfile(res.data);
+        setIsOnline(res.data.isOnline || false);
+        
+        // Load last known location from database if available
+        if (res.data.location && res.data.location.coordinates) {
+           setLiveLocation({
+             lat: res.data.location.coordinates[1],
+             lng: res.data.location.coordinates[0]
+           });
+        }
+      }
     } catch (err) {
       console.log("Could not fetch agent profile");
     }
@@ -40,11 +52,8 @@ export default function AgentApp() {
 
   const fetchDeliveries = async () => {
     try {
-      // Adjust this endpoint based on your actual order routing
       const res = await axios.get(`${API_URL}/api/orders/agent-deliveries`, getAuth());
       const allOrders = res.data || [];
-      
-      // Filter based on status
       setActiveDeliveries(allOrders.filter(o => ['Assigned', 'Picked_Up'].includes(o.status)));
       setDeliveryHistory(allOrders.filter(o => ['Delivered', 'Cancelled'].includes(o.status)));
     } catch (err) {
@@ -68,22 +77,77 @@ export default function AgentApp() {
     window.location.reload();
   };
 
-  const toggleOnlineStatus = async () => {
-    try {
-      // Optional: Ping backend to update agent status
-      // await axios.put(`${API_URL}/api/agent/status`, { isOnline: !isOnline }, getAuth());
-      setIsOnline(!isOnline);
-      setMessage(isOnline ? "You are now Offline" : "You are Online and receiving orders!");
+  // UPDATE LOCATION MANUALLY FROM PROFILE
+  const refreshLiveLocation = () => {
+    if (!navigator.geolocation) return setMessage("Geolocation not supported");
+    setMessage("Detecting GPS...");
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const lat = position.coords.latitude;
+        const lng = position.coords.longitude;
+        setLiveLocation({ lat, lng });
+        
+        // Tell backend if currently online
+        if (isOnline) {
+          await axios.put(`${API_URL}/api/orders/agent/status`, { isOnline: true, lat, lng }, getAuth());
+        }
+        setMessage("GPS Location Updated!");
+        setTimeout(() => setMessage(''), 3000);
+      },
+      (error) => {
+        setMessage("Please allow location access.");
+        setTimeout(() => setMessage(''), 3000);
+      }
+    );
+  };
+
+  const toggleOnlineStatus = () => {
+    if (!navigator.geolocation) {
+      setMessage("Geolocation is not supported by your browser.");
       setTimeout(() => setMessage(''), 3000);
-    } catch (err) {
-      setMessage("Failed to update status");
+      return;
+    }
+
+    const newStatus = !isOnline;
+    
+    if (newStatus === true) {
+      // Going online: Get current location and update state
+      setMessage("Connecting to satellite...");
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          const lat = position.coords.latitude;
+          const lng = position.coords.longitude;
+          setLiveLocation({ lat, lng });
+          
+          try {
+            await axios.put(`${API_URL}/api/orders/agent/status`, { isOnline: true, lat, lng }, getAuth());
+            setIsOnline(true);
+            setMessage("You are Online! Auto-assign radar active.");
+          } catch (err) {
+            setMessage("Failed to connect to dispatch server.");
+          }
+          setTimeout(() => setMessage(''), 3000);
+        },
+        (error) => {
+          setMessage("Location required to go online.");
+          setTimeout(() => setMessage(''), 3000);
+        }
+      );
+    } else {
+      // Going offline
+      axios.put(`${API_URL}/api/orders/agent/status`, { isOnline: false }, getAuth())
+        .then(() => {
+          setIsOnline(false);
+          setMessage("You are now Offline.");
+          setTimeout(() => setMessage(''), 3000);
+        })
+        .catch(() => setMessage("Failed to go offline."));
     }
   };
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans max-w-md mx-auto shadow-2xl relative pb-20">
       
-      {/* HEADER */}
       <header className="bg-fuchsia-700 text-white p-5 rounded-b-3xl shadow-lg z-10 relative">
         <div className="flex justify-between items-center mb-4">
           <div>
@@ -92,13 +156,12 @@ export default function AgentApp() {
           </div>
           <button 
             onClick={toggleOnlineStatus}
-            className={`w-14 h-14 rounded-full flex items-center justify-center shadow-lg border-4 transition-all duration-300 ${isOnline ? 'bg-green-500 border-green-400' : 'bg-gray-300 border-gray-200'}`}
+            className={`w-14 h-14 rounded-full flex items-center justify-center shadow-lg border-4 transition-all duration-300 ${isOnline ? 'bg-green-500 border-green-400 animate-pulse' : 'bg-gray-300 border-gray-200'}`}
           >
             <Power className={`w-6 h-6 ${isOnline ? 'text-white' : 'text-gray-500'}`} />
           </button>
         </div>
 
-        {/* EARNINGS WIDGET (Header) */}
         <div className="bg-white/20 backdrop-blur-md rounded-2xl p-4 flex justify-between items-center border border-white/30">
           <div>
             <p className="text-fuchsia-100 text-xs font-bold uppercase tracking-wider mb-1">Today's Earnings</p>
@@ -111,7 +174,6 @@ export default function AgentApp() {
         </div>
       </header>
 
-      {/* GLOBAL MESSAGE */}
       {message && (
         <div className="fixed top-4 left-4 right-4 z-50 animate-fade-in">
           <div className="bg-gray-900 text-white p-4 rounded-xl shadow-2xl text-center font-bold text-sm">
@@ -120,10 +182,8 @@ export default function AgentApp() {
         </div>
       )}
 
-      {/* MAIN CONTENT AREA */}
       <main className="flex-1 p-4 overflow-y-auto mt-2">
         
-        {/* TAB 1: LIVE DELIVERIES */}
         {activeTab === 'deliveries' && (
           <div className="animate-fade-in space-y-4">
             <div className="flex justify-between items-end mb-4 px-1">
@@ -135,13 +195,13 @@ export default function AgentApp() {
               <div className="bg-white p-8 rounded-2xl text-center border-2 border-dashed border-gray-300">
                 <Power className="w-12 h-12 text-gray-300 mx-auto mb-3" />
                 <h3 className="font-bold text-gray-600 mb-1">You are Offline</h3>
-                <p className="text-sm text-gray-400">Tap the power button above to start receiving delivery requests.</p>
+                <p className="text-sm text-gray-400">Tap the power button above to connect your GPS and receive orders.</p>
               </div>
             ) : activeDeliveries.length === 0 ? (
               <div className="bg-white p-8 rounded-2xl text-center border border-gray-100 shadow-sm">
                 <Clock className="w-12 h-12 text-fuchsia-300 mx-auto mb-3 animate-pulse" />
                 <h3 className="font-bold text-gray-600 mb-1">Looking for Orders</h3>
-                <p className="text-sm text-gray-400">Stay nearby retailer hubs to get assignments faster.</p>
+                <p className="text-sm text-gray-400">Your GPS is active. Stay nearby retailer hubs to get assignments faster.</p>
               </div>
             ) : (
               activeDeliveries.map(order => (
@@ -152,7 +212,6 @@ export default function AgentApp() {
                   </div>
                   
                   <div className="p-5 space-y-4">
-                    {/* Pickup Location */}
                     <div className="flex gap-3 relative">
                       <div className="flex flex-col items-center">
                         <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center"><Package className="w-4 h-4 text-blue-600" /></div>
@@ -165,7 +224,6 @@ export default function AgentApp() {
                       </div>
                     </div>
 
-                    {/* Dropoff Location */}
                     <div className="flex gap-3">
                       <div className="flex flex-col items-center">
                         <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center"><MapPin className="w-4 h-4 text-green-600" /></div>
@@ -173,19 +231,11 @@ export default function AgentApp() {
                       <div>
                         <p className="text-xs font-bold text-gray-400 uppercase">Deliver To</p>
                         <p className="font-bold text-gray-800">{order.customerId?.name || 'Customer'}</p>
-                        <p className="text-sm text-gray-500 line-clamp-2">{order.customerId?.address || 'Customer Delivery Address'}</p>
+                        <p className="text-sm text-gray-500 line-clamp-2">{order.customerId?.deliveryAddress || 'Customer Delivery Address'}</p>
                       </div>
                     </div>
 
-                    {/* Actions */}
                     <div className="grid grid-cols-2 gap-3 pt-4 border-t border-gray-100">
-                      <button className="flex items-center justify-center gap-2 bg-gray-100 text-gray-700 py-3 rounded-xl font-bold text-sm hover:bg-gray-200">
-                        <Navigation className="w-4 h-4" /> Map
-                      </button>
-                      <button className="flex items-center justify-center gap-2 bg-gray-100 text-gray-700 py-3 rounded-xl font-bold text-sm hover:bg-gray-200">
-                        <Phone className="w-4 h-4" /> Call
-                      </button>
-                      
                       {order.status === 'Assigned' && (
                         <button onClick={() => handleStatusUpdate(order._id, 'Picked_Up')} className="col-span-2 bg-blue-600 text-white py-4 rounded-xl font-black text-sm uppercase tracking-wider hover:bg-blue-700 shadow-md">
                           Mark as Picked Up
@@ -205,7 +255,6 @@ export default function AgentApp() {
           </div>
         )}
 
-        {/* TAB 2: HISTORY */}
         {activeTab === 'history' && (
           <div className="animate-fade-in">
             <h2 className="text-lg font-black text-gray-800 mb-4 px-1">Past Trips</h2>
@@ -235,7 +284,7 @@ export default function AgentApp() {
           </div>
         )}
 
-        {/* TAB 3: PROFILE */}
+        {/* PROFILE TAB WITH LIVE GPS DETECTOR */}
         {activeTab === 'profile' && (
           <div className="animate-fade-in space-y-4">
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 text-center">
@@ -257,6 +306,28 @@ export default function AgentApp() {
               </div>
             </div>
 
+            {/* LIVE GPS DETECTOR WIDGET */}
+            <div className="bg-gray-900 text-white p-5 rounded-2xl shadow-lg relative overflow-hidden">
+              <div className="absolute -right-4 -top-4 opacity-10">
+                <Map className="w-32 h-32" />
+              </div>
+              <div className="flex justify-between items-center mb-3 relative z-10">
+                <h3 className="font-black flex items-center gap-2"><Navigation className="w-5 h-5 text-blue-400" /> Radar Status</h3>
+                <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider ${isOnline ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                  {isOnline ? 'Active' : 'Standby'}
+                </span>
+              </div>
+              
+              <div className="bg-black/30 p-3 rounded-lg font-mono text-xs text-gray-300 mb-4 relative z-10">
+                <p>LAT: <span className="text-blue-300 font-bold">{liveLocation.lat ? liveLocation.lat.toFixed(6) : 'Waiting...'}</span></p>
+                <p>LNG: <span className="text-blue-300 font-bold">{liveLocation.lng ? liveLocation.lng.toFixed(6) : 'Waiting...'}</span></p>
+              </div>
+
+              <button onClick={refreshLiveLocation} className="w-full bg-blue-600 hover:bg-blue-500 py-3 rounded-xl font-bold text-sm shadow-md transition relative z-10">
+                Detect Current Location
+              </button>
+            </div>
+
             <button onClick={handleLogout} className="w-full bg-red-50 text-red-600 py-4 rounded-xl font-bold border border-red-100 flex items-center justify-center gap-2 hover:bg-red-100 transition">
               <LogOut className="w-5 h-5" /> Sign Out from Fleet
             </button>
@@ -264,7 +335,6 @@ export default function AgentApp() {
         )}
       </main>
 
-      {/* BOTTOM NAVIGATION BAR */}
       <nav className="bg-white border-t border-gray-200 fixed bottom-0 left-0 right-0 max-w-md mx-auto z-40 pb-safe">
         <div className="flex justify-around items-center p-2">
           <button onClick={() => setActiveTab('deliveries')} className={`flex flex-col items-center p-2 w-20 transition-colors ${activeTab === 'deliveries' ? 'text-fuchsia-600' : 'text-gray-400 hover:text-gray-600'}`}>
