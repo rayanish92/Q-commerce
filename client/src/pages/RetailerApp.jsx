@@ -22,21 +22,16 @@ export default function RetailerApp() {
   const API_URL = import.meta.env.VITE_API_URL || '';
   const getAuth = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
 
-  // ---------------------------------------------------------
-  // REAL-TIME AUTO-SYNC (Polling every 5 seconds)
-  // ---------------------------------------------------------
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (token) setShopName(JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).user.shopName);
     
-    // Initial Load
     fetchData(); 
     fetchOrders();
 
-    // Background Auto-Sync
     const interval = setInterval(() => {
       fetchOrders();
-      if(activeTab === 'inventory') fetchData(); // Only sync inventory if looking at it
+      if(activeTab === 'inventory') fetchData(); 
     }, 5000);
 
     return () => clearInterval(interval);
@@ -145,16 +140,13 @@ export default function RetailerApp() {
 
   const handleDelete = async (id) => {
     if (!window.confirm('Are you sure you want to permanently delete this product?')) return;
-    
-    // Optimistic UI Deletion
     const previousProducts = [...products];
     setProducts(products.filter(p => p._id !== id));
-    
     try { 
       await axios.delete(`${API_URL}/api/products/delete/${id}`, getAuth()); 
     } catch (err) {
       alert("Failed to delete product from database.");
-      setProducts(previousProducts); // Bring it back if it failed
+      setProducts(previousProducts); 
     }
   };
 
@@ -170,12 +162,9 @@ export default function RetailerApp() {
     }
   };
 
-  // ---------------------------------------------------------
-  // CRITICAL FIX: AGGRESSIVE ERROR HANDLING FOR ORDERS
-  // ---------------------------------------------------------
   const handleOrderAction = async (orderId, subOrderId, action) => {
     if (!subOrderId) {
-      setMessage("Error: Sub-Order ID missing. Contact Admin to fix database sync.");
+      setMessage("System Error: Order sync failed.");
       setTimeout(() => setMessage(''), 4000);
       return;
     }
@@ -188,13 +177,11 @@ export default function RetailerApp() {
       setTimeout(() => setMessage(''), 3000);
     } catch (err) {
       console.error(`Order ${action} Error:`, err);
-      // Show the exact backend error to the retailer!
-      setMessage(`Error: ${err.response?.data?.message || `Failed to ${action} order. Ensure your store GPS is set in Admin panel.`}`);
+      setMessage(`Error: ${err.response?.data?.message || 'Transaction failed. Please try again.'}`);
       setTimeout(() => setMessage(''), 5000);
     }
   };
 
-  // Helper to dynamically style error vs success messages
   const isError = message.toLowerCase().includes('fail') || message.toLowerCase().includes('error');
 
   return (
@@ -217,7 +204,6 @@ export default function RetailerApp() {
       </div>
 
       <main className="max-w-6xl mx-auto p-4 mt-4 w-full">
-        {/* DYNAMIC MESSAGE BOX */}
         {message && (
           <div className={`mb-6 p-4 rounded-lg font-bold border ${isError ? 'bg-red-100 text-red-800 border-red-200' : 'bg-emerald-100 text-emerald-800 border-emerald-200'}`}>
             {message}
@@ -304,6 +290,9 @@ export default function RetailerApp() {
           </div>
         )}
 
+        {/* =========================================
+            CRITICAL FIX: ALL UI STATUS COLORS ADDED
+            ========================================= */}
         {activeTab === 'orders' && (
           <div className="bg-white p-6 rounded-xl shadow-sm border border-emerald-100">
             <h2 className="text-xl font-bold mb-6">Action Required: Orders</h2>
@@ -311,8 +300,13 @@ export default function RetailerApp() {
               {orders.length === 0 ? <p className="text-center p-4 text-gray-500 border rounded-lg font-bold">No assigned orders.</p> : null}
               {orders.map(order => (
                 <div key={order._id} className="border rounded-xl p-5 bg-gray-50 shadow-sm relative overflow-hidden">
+                   
+                   {/* DYNAMIC SIDE BARS based on every possible status */}
                    {order.subOrder.status === 'Pending' && <div className="absolute top-0 left-0 w-1 h-full bg-yellow-500"></div>}
                    {order.subOrder.status === 'Accepted' && <div className="absolute top-0 left-0 w-1 h-full bg-green-500"></div>}
+                   {order.subOrder.status === 'Assigned' && <div className="absolute top-0 left-0 w-1 h-full bg-blue-500"></div>}
+                   {order.subOrder.status === 'Picked_Up' && <div className="absolute top-0 left-0 w-1 h-full bg-purple-500"></div>}
+                   {order.subOrder.status === 'Delivered' && <div className="absolute top-0 left-0 w-1 h-full bg-emerald-700"></div>}
                    {order.subOrder.status === 'Rejected' && <div className="absolute top-0 left-0 w-1 h-full bg-red-500"></div>}
 
                    <div className="flex justify-between items-start border-b pb-4 mb-4">
@@ -320,8 +314,14 @@ export default function RetailerApp() {
                        <p className="font-mono text-xs font-bold text-indigo-600">Parent Order: {order.orderId}</p>
                        <p className="text-sm font-bold text-gray-800 mt-1">{new Date(order.createdAt).toLocaleString()}</p>
                      </div>
-                     <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${order.subOrder.status==='Pending'?'bg-yellow-200 text-yellow-800':order.subOrder.status==='Accepted'?'bg-green-200 text-green-800':'bg-red-200 text-red-800'}`}>
-                       {order.subOrder.status}
+                     <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
+                        order.subOrder.status === 'Pending' ? 'bg-yellow-200 text-yellow-800' :
+                        (order.subOrder.status === 'Accepted' || order.subOrder.status === 'Delivered') ? 'bg-green-200 text-green-800' :
+                        order.subOrder.status === 'Assigned' ? 'bg-blue-200 text-blue-800' :
+                        order.subOrder.status === 'Picked_Up' ? 'bg-purple-200 text-purple-800' :
+                        'bg-red-200 text-red-800'
+                     }`}>
+                       {order.subOrder.status.replace('_', ' ')}
                      </span>
                    </div>
                    
@@ -336,6 +336,7 @@ export default function RetailerApp() {
                      </ul>
                    </div>
 
+                   {/* ONLY SHOW BUTTONS IF PENDING */}
                    {order.subOrder.status === 'Pending' && (
                      <div className="flex gap-3 pt-4 border-t">
                        <button onClick={() => handleOrderAction(order._id, order.subOrder._id, 'Accept')} className="flex-1 bg-green-600 text-white font-bold py-3 rounded-lg hover:bg-green-700 shadow-sm">Accept Order</button>
