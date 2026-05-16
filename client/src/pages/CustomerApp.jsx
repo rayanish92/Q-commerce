@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { ShoppingBag, Search, MapPin, LogOut, Loader2, Globe, Home, ShoppingCart, User as UserIcon, Trash2, ChevronRight, Smartphone, Crosshair, ArrowLeft, Receipt, CheckCircle, Edit2, Info } from 'lucide-react';
+import { ShoppingBag, Search, MapPin, LogOut, Loader2, Home, ShoppingCart, User as UserIcon, Trash2, ChevronRight, Smartphone, Crosshair, ArrowLeft, Receipt, CheckCircle, Edit2, Info, Camera, Phone, Mail, MessageSquare } from 'lucide-react';
 
 export default function CustomerApp() {
   const MERCHANT_UPI_ID = "your-merchant-id@bank"; 
@@ -35,7 +35,6 @@ export default function CustomerApp() {
 
   const [loading, setLoading] = useState(true);
   const [category, setCategory] = useState('All');
-  const [testMode, setTestMode] = useState(false);
   const [cart, setCart] = useState([]);
   
   // PAYMENT & FEE STATES
@@ -44,7 +43,8 @@ export default function CustomerApp() {
   const [utrNumber, setUtrNumber] = useState('');
   const [deliveryFee, setDeliveryFee] = useState(25);
 
-  const baseCategories = ['All', 'Groceries', 'Vegetables', 'Fruits', 'Dairy', 'Snacks', 'Beverages', 'Pharmacy', 'Meat & Seafood', 'Bakery', 'Personal Care', 'Home & Kitchen'];
+  // CATEGORIES (Pharmacy removed)
+  const baseCategories = ['All', 'Groceries', 'Vegetables', 'Fruits', 'Dairy', 'Snacks', 'Beverages', 'Meat & Seafood', 'Bakery', 'Personal Care', 'Home & Kitchen'];
 
   const API_URL = import.meta.env.VITE_API_URL || '';
   const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
@@ -70,16 +70,17 @@ export default function CustomerApp() {
   }, []);
   
   useEffect(() => {
-    if (activeTab === 'home') fetchNearbyProducts();
-    if (activeTab === 'account' && accountSubTab === 'orders') fetchMyOrders();
+    if (activeTab === 'home') fetchNearbyProducts(false);
+    if (activeTab === 'account' && accountSubTab === 'orders') fetchMyOrders(false);
     
+    // Background Auto-Sync every 8 seconds (SILENT)
     const interval = setInterval(() => {
-      if (activeTab === 'home') fetchNearbyProducts();
-      if (activeTab === 'account' && accountSubTab === 'orders') fetchMyOrders();
-    }, 5000);
+      if (activeTab === 'home') fetchNearbyProducts(true);
+      if (activeTab === 'account' && accountSubTab === 'orders') fetchMyOrders(true);
+    }, 8000);
 
     return () => clearInterval(interval);
-  }, [category, activeTab, testMode, location.lat, location.lng, selectedAddress]);
+  }, [category, activeTab, location.lat, location.lng, selectedAddress]);
 
   useEffect(() => {
     const fetchFee = async () => {
@@ -101,7 +102,12 @@ export default function CustomerApp() {
       setAddresses(res.data.addresses || []);
       setEditPhoneValue(res.data.contactNumber || '');
       setNewAddress(prev => ({ ...prev, contactName: res.data.name, phoneNumber: res.data.contactNumber || '' }));
-    } catch (err) {}
+    } catch (err) {
+      if (err.response?.status === 401) {
+        localStorage.clear();
+        window.location.href = '/';
+      }
+    }
   };
 
   const handleSavePhone = async () => {
@@ -112,9 +118,20 @@ export default function CustomerApp() {
     } catch (err) { alert('Failed to update phone number'); }
   };
 
-  // ---------------------------------------------------------
-  // REVERSE GEOCODING (Converts GPS to Address via Google)
-  // ---------------------------------------------------------
+  const handleProfilePicUpload = async (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        try {
+          await axios.put(`${API_URL}/api/auth/profile`, { profilePic: reader.result }, getAuth());
+          setUserProfile(prev => ({ ...prev, profilePic: reader.result }));
+        } catch (err) { alert('Failed to upload profile picture.'); }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   const detectLocation = () => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
@@ -145,9 +162,6 @@ export default function CustomerApp() {
     }
   };
 
-  // ---------------------------------------------------------
-  // GOOGLE PLACES AUTOCOMPLETE FOR MODAL (Top App Bar)
-  // ---------------------------------------------------------
   const handleModalSearch = (e) => {
     const query = e.target.value; 
     setModalAddress(query);
@@ -184,9 +198,6 @@ export default function CustomerApp() {
     });
   };
 
-  // ---------------------------------------------------------
-  // GOOGLE PLACES AUTOCOMPLETE FOR CHECKOUT FORM
-  // ---------------------------------------------------------
   const handleFormSearch = (query) => {
     setNewAddress(prev => ({...prev, address: query}));
     if (query.length > 2 && window.google) {
@@ -209,40 +220,42 @@ export default function CustomerApp() {
     geocoder.geocode({ placeId: suggestion.place_id }, (results, status) => {
       if (status === 'OK' && results[0]) {
         const loc = results[0].geometry.location;
-        
-        // Try to auto-extract the PIN Code if Google provides it
         let pincode = '';
         results[0].address_components.forEach(component => {
           if (component.types.includes('postal_code')) {
             pincode = component.long_name;
           }
         });
-
         setNewAddress(prev => ({
           ...prev, 
           address: suggestion.description, 
           lat: loc.lat(), 
           lng: loc.lng(),
-          pincode: pincode || prev.pincode // Use extracted pin, or keep whatever was there
+          pincode: pincode || prev.pincode 
         }));
         setFormSuggestions([]);
       }
     });
   };
 
-  const fetchNearbyProducts = async () => {
-    setLoading(true);
+  const fetchNearbyProducts = async (isSilent = false) => {
+    if (!isSilent) setLoading(true);
     try {
       const lat = selectedAddress ? selectedAddress.lat : location.lat;
       const lng = selectedAddress ? selectedAddress.lng : location.lng;
-      const res = await axios.get(`${API_URL}/api/products/nearby?lng=${lng}&lat=${lat}&category=${category}&testMode=${testMode}`, getAuth());
+      const res = await axios.get(`${API_URL}/api/products/nearby?lng=${lng}&lat=${lat}&category=${category}`, getAuth());
       const uniqueProducts = []; const seenNames = new Set();
       res.data.forEach(p => { if (!seenNames.has(p.name)) { seenNames.add(p.name); uniqueProducts.push(p); } });
       setProducts(uniqueProducts);
-    } catch (err) {} finally { setLoading(false); }
+    } catch (err) {} finally { if (!isSilent) setLoading(false); }
   };
 
-  const fetchMyOrders = async () => { try { setMyOrders((await axios.get(`${API_URL}/api/orders/my-orders`, getAuth())).data || []); } catch(err){} };
+  const fetchMyOrders = async (isSilent = false) => { 
+    try { 
+      const res = await axios.get(`${API_URL}/api/orders/my-orders`, getAuth());
+      if (res.data) setMyOrders(res.data);
+    } catch(err){} 
+  };
 
   const handleSaveAddress = async (e) => {
     e.preventDefault();
@@ -253,10 +266,10 @@ export default function CustomerApp() {
       } else {
         res = await axios.post(`${API_URL}/api/auth/address`, newAddress, getAuth());
       }
-      setAddresses(res.data); 
+      if (res.data) setAddresses(res.data); 
       setShowAddressForm(false); setEditAddressId(null);
       setNewAddress({ label: 'Home', contactName: userProfile.name, phoneNumber: userProfile.contactNumber || '', address: '', landmark: '', pincode: '', lat: location.lat, lng: location.lng });
-    } catch (err) { alert('Failed to save address'); }
+    } catch (err) { alert('Failed to save address. Please check your connection.'); }
   };
 
   const handleEditAddressInit = (addr) => {
@@ -264,7 +277,10 @@ export default function CustomerApp() {
   };
 
   const handleDeleteAddress = async (id) => {
-    try { setAddresses((await axios.delete(`${API_URL}/api/auth/address/${id}`, getAuth())).data); } catch (err) {}
+    try { 
+      const res = await axios.delete(`${API_URL}/api/auth/address/${id}`, getAuth());
+      if (res.data) setAddresses(res.data); 
+    } catch (err) {}
   };
 
   const addToCart = (product) => {
@@ -355,8 +371,7 @@ export default function CustomerApp() {
         <div className="max-w-4xl mx-auto flex justify-between items-center">
           <div><h1 className="text-2xl font-extrabold tracking-tight flex items-center gap-2"><ShoppingBag className="w-6 h-6" /> QuickComm</h1></div>
           <div className="flex items-center gap-3">
-            <button onClick={() => setTestMode(!testMode)} className={`flex items-center gap-1 text-[10px] px-2 py-1 rounded-full font-bold border transition ${testMode ? 'bg-red-500' : 'bg-indigo-700'}`}><Globe className="w-3 h-3" /> {testMode ? "Test" : "10km"}</button>
-            <button onClick={() => setShowLocationModal(true)} className="flex flex-col items-end max-w-[150px] text-right bg-indigo-700 p-2 rounded-lg hover:bg-indigo-800 transition shadow-inner">
+            <button onClick={() => setShowLocationModal(true)} className="flex flex-col items-end max-w-[200px] text-right bg-indigo-700 p-2 rounded-lg hover:bg-indigo-800 transition shadow-inner">
               <span className="text-[10px] font-bold text-indigo-200 uppercase">Delivering to</span>
               <div className="flex items-center gap-1"><span className="font-bold text-sm truncate">{selectedAddress ? `${selectedAddress.label} (${selectedAddress.pincode})` : locationName}</span><MapPin className="w-4 h-4 text-pink-400 flex-shrink-0" /></div>
             </button>
@@ -496,6 +511,7 @@ export default function CustomerApp() {
                   <button onClick={() => setAccountSubTab('profile')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition ${accountSubTab === 'profile' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50'}`}><UserIcon className="w-5 h-5"/> Profile</button>
                   <button onClick={() => setAccountSubTab('addresses')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition ${accountSubTab === 'addresses' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50'}`}><MapPin className="w-5 h-5"/> Addresses</button>
                   <button onClick={() => setAccountSubTab('orders')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition ${accountSubTab === 'orders' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50'}`}><ShoppingBag className="w-5 h-5"/> My Orders</button>
+                  <button onClick={() => setAccountSubTab('contact')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition ${accountSubTab === 'contact' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50'}`}><MessageSquare className="w-5 h-5"/> Contact Us</button>
                 </nav>
                 <button onClick={() => { localStorage.clear(); window.location.href='/'; }} className="w-full mt-8 flex items-center justify-center gap-2 text-red-500 font-bold py-3 hover:bg-red-50 rounded-xl transition"><LogOut className="w-5 h-5"/> Sign Out</button>
               </div>
@@ -504,7 +520,17 @@ export default function CustomerApp() {
             <div className="flex-1">
               {accountSubTab === 'profile' && !selectedOrder && (
                 <div className="bg-white rounded-2xl shadow-sm border p-6">
-                   <div className="w-24 h-24 bg-indigo-100 rounded-full flex items-center justify-center text-indigo-600 mb-6 mx-auto md:mx-0"><UserIcon className="w-12 h-12"/></div>
+                   <div className="relative w-28 h-28 mx-auto md:mx-0 mb-6">
+                     {userProfile.profilePic ? (
+                       <img src={userProfile.profilePic} alt="Profile" className="w-full h-full rounded-full object-cover border-4 border-indigo-100 shadow-sm" />
+                     ) : (
+                       <div className="w-full h-full bg-indigo-100 rounded-full flex items-center justify-center text-indigo-600 shadow-sm"><UserIcon className="w-12 h-12"/></div>
+                     )}
+                     <label className="absolute bottom-0 right-0 bg-indigo-600 text-white p-2.5 rounded-full cursor-pointer shadow-lg hover:bg-indigo-700 transition transform hover:scale-105">
+                       <Camera className="w-4 h-4" />
+                       <input type="file" accept="image/*" className="hidden" onChange={handleProfilePicUpload} />
+                     </label>
+                   </div>
                    <div className="space-y-6">
                      <div><label className="text-xs font-bold text-gray-500 uppercase">Full Name</label><p className="text-xl font-bold text-gray-800">{userProfile.name}</p></div>
                      <div><label className="text-xs font-bold text-gray-500 uppercase">Email Address</label><p className="text-lg font-medium text-gray-600">{userProfile.email}</p></div>
@@ -580,6 +606,26 @@ export default function CustomerApp() {
                       </div>
                     </div>
                   ))}
+                </div>
+              )}
+
+              {accountSubTab === 'contact' && !selectedOrder && (
+                <div className="bg-white rounded-2xl shadow-sm border p-6">
+                  <h3 className="font-bold text-gray-800 text-xl mb-2">Contact Support</h3>
+                  <p className="text-gray-500 mb-6 text-sm">Need help with a recent order or have a question? Our support team is here to assist you.</p>
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-xl border border-gray-100">
+                      <div className="bg-indigo-100 p-3 rounded-full"><Phone className="w-6 h-6 text-indigo-600" /></div>
+                      <div><p className="text-xs text-gray-500 font-bold uppercase">Call Us Directly</p><p className="font-bold text-gray-800 text-lg">+91 98765 43210</p></div>
+                    </div>
+                    <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-xl border border-gray-100">
+                      <div className="bg-pink-100 p-3 rounded-full"><Mail className="w-6 h-6 text-pink-600" /></div>
+                      <div><p className="text-xs text-gray-500 font-bold uppercase">Email Support</p><p className="font-bold text-gray-800 text-lg">support@quickcomm.com</p></div>
+                    </div>
+                  </div>
+                  <div className="mt-8 p-4 bg-indigo-50 border border-indigo-100 rounded-xl text-center">
+                    <p className="text-sm font-bold text-indigo-800">Support Hours: 8:00 AM - 10:00 PM (Daily)</p>
+                  </div>
                 </div>
               )}
 
