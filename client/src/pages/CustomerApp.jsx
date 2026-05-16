@@ -1,411 +1,638 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { MapPin, Package, CheckCircle, Clock, IndianRupee, LogOut, User, Navigation, Phone, Power, Map } from 'lucide-react';
+import { ShoppingBag, Search, MapPin, LogOut, Loader2, Globe, Home, ShoppingCart, User as UserIcon, Trash2, ChevronRight, Smartphone, Crosshair, ArrowLeft, Receipt, CheckCircle, Edit2, Info } from 'lucide-react';
 
-export default function AgentApp() {
-  const [activeTab, setActiveTab] = useState('deliveries');
-  const [isOnline, setIsOnline] = useState(false);
-  const [message, setMessage] = useState('');
+export default function CustomerApp() {
+  const MERCHANT_UPI_ID = "your-merchant-id@bank"; 
+  const MERCHANT_NAME = "QuickComm";
   
-  // Live Location State
-  const [liveLocation, setLiveLocation] = useState({ lat: null, lng: null });
-  const [currentAddress, setCurrentAddress] = useState('');
+  const [activeTab, setActiveTab] = useState('home'); 
+  const [accountSubTab, setAccountSubTab] = useState('profile');
   
-  // Data States
-  const [activeDeliveries, setActiveDeliveries] = useState([]);
-  const [deliveryHistory, setDeliveryHistory] = useState([]);
-  const [agentProfile, setAgentProfile] = useState({ name: 'Agent', contactNumber: '', totalEarnings: 0 });
+  const [products, setProducts] = useState([]);
+  const [myOrders, setMyOrders] = useState([]);
+  const [selectedOrder, setSelectedOrder] = useState(null); 
+  
+  const [userProfile, setUserProfile] = useState({});
+  const [isEditingPhone, setIsEditingPhone] = useState(false);
+  const [editPhoneValue, setEditPhoneValue] = useState('');
+  
+  // ADDRESS STATES
+  const [addresses, setAddresses] = useState([]);
+  const [showAddressForm, setShowAddressForm] = useState(false);
+  const [editAddressId, setEditAddressId] = useState(null);
+  const [newAddress, setNewAddress] = useState({ label: 'Home', contactName: '', phoneNumber: '', address: '', landmark: '', pincode: '', lat: 22.5726, lng: 88.3639 });
+  
+  // LOCATION STATES
+  const [selectedAddress, setSelectedAddress] = useState(null); 
+  const [locationName, setLocationName] = useState('Selecting Location...');
+  const [location, setLocation] = useState({ lng: 88.3639, lat: 22.5726 }); 
+  
+  const [showLocationModal, setShowLocationModal] = useState(false);
+  const [modalAddress, setModalAddress] = useState('');
+  const [modalSuggestions, setModalSuggestions] = useState([]);
+  const [formSuggestions, setFormSuggestions] = useState([]);
+
+  const [loading, setLoading] = useState(true);
+  const [category, setCategory] = useState('All');
+  const [testMode, setTestMode] = useState(false);
+  const [cart, setCart] = useState([]);
+  
+  // PAYMENT & FEE STATES
+  const [paymentMethod, setPaymentMethod] = useState('UPI');
+  const [upiStatus, setUpiStatus] = useState('pending');
+  const [utrNumber, setUtrNumber] = useState('');
+  const [deliveryFee, setDeliveryFee] = useState(25);
+
+  const baseCategories = ['All', 'Groceries', 'Vegetables', 'Fruits', 'Dairy', 'Snacks', 'Beverages', 'Pharmacy', 'Meat & Seafood', 'Bakery', 'Personal Care', 'Home & Kitchen'];
 
   const API_URL = import.meta.env.VITE_API_URL || '';
   const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
-
   const getAuth = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
 
+  // ---------------------------------------------------------
+  // INJECT GOOGLE MAPS SCRIPT ON LOAD
+  // ---------------------------------------------------------
   useEffect(() => {
-    fetchAgentData();
-    fetchDeliveries();
+    if (GOOGLE_MAPS_API_KEY && !document.querySelector('#google-maps-script')) {
+      const script = document.createElement('script');
+      script.id = 'google-maps-script';
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&libraries=places`;
+      script.async = true;
+      script.defer = true;
+      document.head.appendChild(script);
+    }
+  }, [GOOGLE_MAPS_API_KEY]);
 
+  useEffect(() => { 
+    fetchUserProfile(); 
+    detectLocation(); 
+  }, []);
+  
+  useEffect(() => {
+    if (activeTab === 'home') fetchNearbyProducts();
+    if (activeTab === 'account' && accountSubTab === 'orders') fetchMyOrders();
+    
     const interval = setInterval(() => {
-      if (isOnline) fetchDeliveries();
-    }, 10000);
+      if (activeTab === 'home') fetchNearbyProducts();
+      if (activeTab === 'account' && accountSubTab === 'orders') fetchMyOrders();
+    }, 5000);
 
     return () => clearInterval(interval);
-  }, [isOnline]);
+  }, [category, activeTab, testMode, location.lat, location.lng, selectedAddress]);
 
-  const fetchAgentData = async () => {
+  useEffect(() => {
+    const fetchFee = async () => {
+      if (cart.length === 0) return setDeliveryFee(25);
+      try {
+        const lat = selectedAddress ? selectedAddress.lat : location.lat;
+        const lng = selectedAddress ? selectedAddress.lng : location.lng;
+        const res = await axios.post(`${API_URL}/api/orders/estimate-fee`, { items: cart, lat, lng }, getAuth());
+        if (res.data.possible) setDeliveryFee(res.data.fee);
+      } catch (err) { setDeliveryFee(25); }
+    };
+    fetchFee();
+  }, [cart, location.lat, location.lng, selectedAddress]);
+
+  const fetchUserProfile = async () => {
     try {
       const res = await axios.get(`${API_URL}/api/auth/me`, getAuth());
-      if (res.data) {
-        setAgentProfile(res.data);
-        setIsOnline(res.data.isOnline || false);
-        
-        if (res.data.location && res.data.location.coordinates) {
-           const lat = res.data.location.coordinates[1];
-           const lng = res.data.location.coordinates[0];
-           setLiveLocation({ lat, lng });
-           fetchAddressFromGoogle(lat, lng); 
-        }
-      }
-    } catch (err) {
-      console.log("Could not fetch agent profile");
-    }
+      setUserProfile(res.data);
+      setAddresses(res.data.addresses || []);
+      setEditPhoneValue(res.data.contactNumber || '');
+      setNewAddress(prev => ({ ...prev, contactName: res.data.name, phoneNumber: res.data.contactNumber || '' }));
+    } catch (err) {}
   };
 
-  const fetchDeliveries = async () => {
+  const handleSavePhone = async () => {
     try {
-      const res = await axios.get(`${API_URL}/api/orders/agent-deliveries`, getAuth());
-      const allOrders = res.data || [];
-      setActiveDeliveries(allOrders.filter(o => ['Assigned', 'Picked_Up'].includes(o.status)));
-      setDeliveryHistory(allOrders.filter(o => ['Delivered', 'Cancelled'].includes(o.status)));
-    } catch (err) {
-      console.log("Could not fetch deliveries yet.");
-    }
+      await axios.put(`${API_URL}/api/auth/profile`, { contactNumber: editPhoneValue }, getAuth());
+      setUserProfile(prev => ({...prev, contactNumber: editPhoneValue}));
+      setIsEditingPhone(false);
+    } catch (err) { alert('Failed to update phone number'); }
   };
 
-  const handleStatusUpdate = async (orderId, newStatus) => {
-    try {
-      await axios.put(`${API_URL}/api/orders/${orderId}/status`, { status: newStatus }, getAuth());
-      setMessage(`Order marked as ${newStatus.replace('_', ' ')}!`);
-      fetchDeliveries();
-      setTimeout(() => setMessage(''), 3000);
-    } catch (err) {
-      setMessage(err.response?.data?.message || 'Error updating status');
-    }
-  };
-
-  const handleLogout = () => {
-    localStorage.removeItem('token');
-    window.location.reload();
-  };
-
-  const fetchAddressFromGoogle = async (lat, lng) => {
-    if (!GOOGLE_MAPS_API_KEY) return; 
-    try {
-      const res = await axios.get(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${GOOGLE_MAPS_API_KEY}`);
-      if (res.data.results && res.data.results.length > 0) {
-        setCurrentAddress(res.data.results[0].formatted_address);
-      }
-    } catch (err) {
-      console.error("Google Maps API Error:", err);
-    }
-  };
-
-  const refreshLiveLocation = () => {
-    if (!navigator.geolocation) return setMessage("Geolocation not supported");
-    setMessage("Detecting GPS...");
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const lat = position.coords.latitude;
-        const lng = position.coords.longitude;
-        setLiveLocation({ lat, lng });
-        fetchAddressFromGoogle(lat, lng); 
-        
-        if (isOnline) {
-          await axios.put(`${API_URL}/api/orders/agent/status`, { isOnline: true, lat, lng }, getAuth());
-        }
-        setMessage("GPS Location Updated!");
-        setTimeout(() => setMessage(''), 3000);
-      },
-      (error) => {
-        setMessage("Please allow location access.");
-        setTimeout(() => setMessage(''), 3000);
-      }
-    );
-  };
-
-  const toggleOnlineStatus = () => {
-    if (!navigator.geolocation) {
-      setMessage("Geolocation is not supported by your browser.");
-      setTimeout(() => setMessage(''), 3000);
-      return;
-    }
-
-    const newStatus = !isOnline;
-    
-    if (newStatus === true) {
-      setMessage("Connecting to satellite...");
+  // ---------------------------------------------------------
+  // REVERSE GEOCODING (Converts GPS to Address via Google)
+  // ---------------------------------------------------------
+  const detectLocation = () => {
+    if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        async (position) => {
-          const lat = position.coords.latitude;
-          const lng = position.coords.longitude;
-          setLiveLocation({ lat, lng });
-          fetchAddressFromGoogle(lat, lng); 
+        (pos) => {
+          const lat = pos.coords.latitude; 
+          const lng = pos.coords.longitude;
+          setLocation({ lat, lng });
+          setSelectedAddress(null); 
           
-          try {
-            await axios.put(`${API_URL}/api/orders/agent/status`, { isOnline: true, lat, lng }, getAuth());
-            setIsOnline(true);
-            setMessage("You are Online! Auto-assign radar active.");
-          } catch (err) {
-            setMessage("Failed to connect to dispatch server.");
+          if (window.google) {
+            const geocoder = new window.google.maps.Geocoder();
+            geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+              if (status === 'OK' && results[0]) {
+                const formatted = results[0].formatted_address;
+                setLocationName(formatted.split(',').slice(0,2).join(', '));
+                setNewAddress(prev => ({...prev, lat, lng, address: '', pincode: '', landmark: ''}));
+              } else {
+                setLocationName('Current GPS Location');
+              }
+            });
+          } else {
+            setLocationName('Current GPS Location');
           }
-          setTimeout(() => setMessage(''), 3000);
+          setShowLocationModal(false);
         },
-        (error) => {
-          setMessage("Location required to go online.");
-          setTimeout(() => setMessage(''), 3000);
-        }
+        () => { setLocationName('Default Map Center'); setSelectedAddress(null); }
       );
-    } else {
-      axios.put(`${API_URL}/api/orders/agent/status`, { isOnline: false }, getAuth())
-        .then(() => {
-          setIsOnline(false);
-          setMessage("You are now Offline.");
-          setTimeout(() => setMessage(''), 3000);
-        })
-        .catch(() => setMessage("Failed to go offline."));
     }
   };
 
-  const handleOpenMap = (order) => {
-    let destination = '';
-    if (order.status === 'Assigned') {
-      destination = `${order.retailerId?.shopName}, ${order.retailerId?.address}`;
-    } else {
-      destination = order.deliveryAddress || order.customerId?.address;
+  // ---------------------------------------------------------
+  // GOOGLE PLACES AUTOCOMPLETE FOR MODAL (Top App Bar)
+  // ---------------------------------------------------------
+  const handleModalSearch = (e) => {
+    const query = e.target.value; 
+    setModalAddress(query);
+    if (query.length > 2 && window.google) {
+      const service = new window.google.maps.places.AutocompleteService();
+      service.getPlacePredictions({ input: query, componentRestrictions: { country: 'in' } }, (predictions, status) => {
+        if (status === window.google.maps.places.PlacesServiceStatus.OK && predictions) {
+          setModalSuggestions(predictions);
+        } else {
+          setModalSuggestions([]);
+        }
+      });
+    } else { 
+      setModalSuggestions([]); 
     }
-    if (!destination || destination.trim() === 'undefined, undefined' || destination.trim() === '') {
-      setMessage("Error: No valid address provided.");
-      setTimeout(() => setMessage(''), 3000);
-      return;
-    }
-    const mapUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}`;
-    window.open(mapUrl, '_blank');
   };
 
-  const handlePhoneCall = (order) => {
-    let phone = order.status === 'Assigned' ? order.retailerId?.contactNumber : order.customerId?.contactNumber;
-    if (!phone) {
-      setMessage("No phone number available.");
-      setTimeout(() => setMessage(''), 3000);
-      return;
+  const selectModalSuggestion = (suggestion) => {
+    if (!window.google) return;
+    const geocoder = new window.google.maps.Geocoder();
+    geocoder.geocode({ placeId: suggestion.place_id }, (results, status) => {
+      if (status === 'OK' && results[0]) {
+        const loc = results[0].geometry.location;
+        const lat = loc.lat();
+        const lng = loc.lng();
+        setLocation({ lat, lng });
+        setLocationName(suggestion.description.split(',').slice(0, 2).join(', '));
+        setNewAddress(prev => ({...prev, lat, lng, address: '', pincode: '', landmark: ''}));
+        setSelectedAddress(null); 
+        setShowLocationModal(false); 
+        setModalSuggestions([]); 
+        setModalAddress('');
+      }
+    });
+  };
+
+  // ---------------------------------------------------------
+  // GOOGLE PLACES AUTOCOMPLETE FOR CHECKOUT FORM
+  // ---------------------------------------------------------
+  const handleFormSearch = (query) => {
+    setNewAddress(prev => ({...prev, address: query}));
+    if (query.length > 2 && window.google) {
+      const service = new window.google.maps.places.AutocompleteService();
+      service.getPlacePredictions({ input: query, componentRestrictions: { country: 'in' } }, (predictions, status) => {
+        if (status === window.google.maps.places.PlacesServiceStatus.OK && predictions) {
+          setFormSuggestions(predictions);
+        } else {
+          setFormSuggestions([]);
+        }
+      });
+    } else { 
+      setFormSuggestions([]); 
     }
-    window.location.href = `tel:${phone}`;
+  };
+
+  const selectFormSuggestion = (suggestion) => {
+    if (!window.google) return;
+    const geocoder = new window.google.maps.Geocoder();
+    geocoder.geocode({ placeId: suggestion.place_id }, (results, status) => {
+      if (status === 'OK' && results[0]) {
+        const loc = results[0].geometry.location;
+        
+        // Try to auto-extract the PIN Code if Google provides it
+        let pincode = '';
+        results[0].address_components.forEach(component => {
+          if (component.types.includes('postal_code')) {
+            pincode = component.long_name;
+          }
+        });
+
+        setNewAddress(prev => ({
+          ...prev, 
+          address: suggestion.description, 
+          lat: loc.lat(), 
+          lng: loc.lng(),
+          pincode: pincode || prev.pincode // Use extracted pin, or keep whatever was there
+        }));
+        setFormSuggestions([]);
+      }
+    });
+  };
+
+  const fetchNearbyProducts = async () => {
+    setLoading(true);
+    try {
+      const lat = selectedAddress ? selectedAddress.lat : location.lat;
+      const lng = selectedAddress ? selectedAddress.lng : location.lng;
+      const res = await axios.get(`${API_URL}/api/products/nearby?lng=${lng}&lat=${lat}&category=${category}&testMode=${testMode}`, getAuth());
+      const uniqueProducts = []; const seenNames = new Set();
+      res.data.forEach(p => { if (!seenNames.has(p.name)) { seenNames.add(p.name); uniqueProducts.push(p); } });
+      setProducts(uniqueProducts);
+    } catch (err) {} finally { setLoading(false); }
+  };
+
+  const fetchMyOrders = async () => { try { setMyOrders((await axios.get(`${API_URL}/api/orders/my-orders`, getAuth())).data || []); } catch(err){} };
+
+  const handleSaveAddress = async (e) => {
+    e.preventDefault();
+    try {
+      let res;
+      if (editAddressId) {
+        res = await axios.put(`${API_URL}/api/auth/address/${editAddressId}`, newAddress, getAuth());
+      } else {
+        res = await axios.post(`${API_URL}/api/auth/address`, newAddress, getAuth());
+      }
+      setAddresses(res.data); 
+      setShowAddressForm(false); setEditAddressId(null);
+      setNewAddress({ label: 'Home', contactName: userProfile.name, phoneNumber: userProfile.contactNumber || '', address: '', landmark: '', pincode: '', lat: location.lat, lng: location.lng });
+    } catch (err) { alert('Failed to save address'); }
+  };
+
+  const handleEditAddressInit = (addr) => {
+    setNewAddress(addr); setEditAddressId(addr._id); setShowAddressForm(true);
+  };
+
+  const handleDeleteAddress = async (id) => {
+    try { setAddresses((await axios.delete(`${API_URL}/api/auth/address/${id}`, getAuth())).data); } catch (err) {}
+  };
+
+  const addToCart = (product) => {
+    const existing = cart.find(item => item._id === product._id);
+    if (existing) setCart(cart.map(item => item._id === product._id ? { ...item, cartQty: item.cartQty + 1 } : item));
+    else setCart([...cart, { ...product, cartQty: 1 }]);
+  };
+  const updateCartQty = (id, amount) => { setCart(cart.map(i => i._id === id ? { ...i, cartQty: i.cartQty + amount } : i).filter(i => i.cartQty > 0)); };
+  
+  const itemTotal = cart.reduce((sum, item) => sum + (item.sellingPrice * item.cartQty), 0);
+  const grandTotal = itemTotal > 0 ? itemTotal + deliveryFee : 0;
+
+  const triggerUPIApp = (appType) => {
+    const upiString = `upi://pay?pa=${MERCHANT_UPI_ID}&pn=${MERCHANT_NAME}&am=${grandTotal}&cu=INR&tn=QuickCommOrder`;
+    if (appType === 'gpay') window.location.href = `gpay://upi/pay?pa=${MERCHANT_UPI_ID}&pn=${MERCHANT_NAME}&am=${grandTotal}&cu=INR`;
+    else if (appType === 'phonepe') window.location.href = `phonepe://pay?pa=${MERCHANT_UPI_ID}&pn=${MERCHANT_NAME}&am=${grandTotal}&cu=INR`;
+    else if (appType === 'paytm') window.location.href = `paytmmp://pay?pa=${MERCHANT_UPI_ID}&pn=${MERCHANT_NAME}&am=${grandTotal}&cu=INR`;
+    else window.location.href = upiString;
+    setUpiStatus('awaiting_utr');
+  };
+
+  const handlePlaceOrder = async () => {
+    let orderAddress = "";
+    let orderLat, orderLng;
+
+    if (selectedAddress) {
+      orderAddress = `${selectedAddress.address} (Landmark: ${selectedAddress.landmark || 'None'}) - PIN: ${selectedAddress.pincode || 'N/A'} - Name: ${selectedAddress.contactName}, Phone: ${selectedAddress.phoneNumber}`;
+      orderLat = selectedAddress.lat; orderLng = selectedAddress.lng;
+    } else {
+      if (!newAddress.contactName || !newAddress.phoneNumber || !newAddress.address || !newAddress.pincode) return alert("Please fill out your complete contact details & PIN Code for this unsaved location.");
+      orderAddress = `${newAddress.address} (Landmark: ${newAddress.landmark || 'None'}) - PIN: ${newAddress.pincode || 'N/A'} - Name: ${newAddress.contactName}, Phone: ${newAddress.phoneNumber}`;
+      orderLat = location.lat; orderLng = location.lng;
+    }
+
+    if (paymentMethod === 'UPI' && utrNumber.length < 6) return alert("Please enter a valid UTR / Reference number to verify your payment.");
+
+    try {
+      await axios.post(`${API_URL}/api/orders/create`, {
+        items: cart.map(i => ({ name: i.name, cartQty: i.cartQty, price: i.sellingPrice, retailerPrice: i.retailerPrice })),
+        totalAmount: grandTotal, 
+        paymentMethod: paymentMethod === 'UPI' ? `UPI (UTR: ${utrNumber})` : 'COD', 
+        deliveryAddress: orderAddress,
+        lat: orderLat, lng: orderLng
+      }, getAuth());
+      
+      setCart([]); setUpiStatus('pending'); setUtrNumber('');
+      alert("Order Successfully Placed!");
+      setActiveTab('account'); setAccountSubTab('orders');
+    } catch (err) { alert(err.response?.data?.message || "Failed to place order."); }
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col font-sans max-w-md mx-auto shadow-2xl relative pb-20">
-      
-      <header className="bg-fuchsia-700 text-white p-5 rounded-b-3xl shadow-lg z-10 relative">
-        <div className="flex justify-between items-center mb-4">
-          <div>
-            <h1 className="text-2xl font-black tracking-wide">Fleet App</h1>
-            <p className="text-fuchsia-200 text-sm font-medium">Hello, {agentProfile.name}</p>
-          </div>
-          <button 
-            onClick={toggleOnlineStatus}
-            className={`w-14 h-14 rounded-full flex items-center justify-center shadow-lg border-4 transition-all duration-300 ${isOnline ? 'bg-green-500 border-green-400 animate-pulse' : 'bg-gray-300 border-gray-200'}`}
-          >
-            <Power className={`w-6 h-6 ${isOnline ? 'text-white' : 'text-gray-500'}`} />
-          </button>
-        </div>
-
-        <div className="bg-white/20 backdrop-blur-md rounded-2xl p-4 flex justify-between items-center border border-white/30">
-          <div>
-            <p className="text-fuchsia-100 text-xs font-bold uppercase tracking-wider mb-1">Today's Earnings</p>
-            <p className="text-3xl font-black text-white flex items-center"><IndianRupee className="w-6 h-6 mr-1" />{agentProfile.totalEarnings || 0}</p>
-          </div>
-          <div className="text-right">
-            <p className="text-fuchsia-100 text-xs font-bold uppercase tracking-wider mb-1">Completed</p>
-            <p className="text-xl font-bold text-white">{deliveryHistory.length} Trips</p>
-          </div>
-        </div>
-      </header>
-
-      {message && (
-        <div className="fixed top-4 left-4 right-4 z-50 animate-fade-in">
-          <div className="bg-gray-900 text-white p-4 rounded-xl shadow-2xl text-center font-bold text-sm">
-            {message}
+    <div className="min-h-screen bg-gray-50 flex flex-col pb-24">
+      {/* MAP LOCATION MODAL */}
+      {showLocationModal && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-end md:items-center justify-center">
+          <div className="bg-white w-full md:w-96 rounded-t-3xl md:rounded-3xl p-6 shadow-2xl h-[85vh] md:h-[90vh] flex flex-col">
+            <h3 className="text-xl font-bold mb-4">Set Map Location</h3>
+            <button onClick={detectLocation} className="w-full flex items-center justify-center gap-2 bg-indigo-100 text-indigo-700 font-bold py-3 rounded-xl mb-4 hover:bg-indigo-200 shadow-sm"><Crosshair className="w-5 h-5"/> Use Current GPS Location</button>
+            <div className="relative flex py-1 items-center"><div className="flex-grow border-t border-gray-300"></div><span className="flex-shrink-0 mx-4 text-gray-400 text-xs uppercase tracking-wider font-bold">Or Search City/Town</span><div className="flex-grow border-t border-gray-300"></div></div>
+            <div className="mt-2 relative">
+              <input type="text" placeholder="Search Google Maps..." value={modalAddress} onChange={handleModalSearch} className="w-full p-3 border rounded-xl mb-2 focus:ring-2 focus:ring-indigo-500 outline-none shadow-inner" />
+              {modalSuggestions.length > 0 && (
+                <div className="bg-white border rounded-lg shadow-lg overflow-hidden absolute w-full z-10 max-h-48 overflow-y-auto">
+                  {modalSuggestions.map((sug, i) => <button key={i} onClick={() => selectModalSuggestion(sug)} className="w-full text-left p-3 border-b hover:bg-gray-50 text-sm text-gray-700 font-medium">{sug.description}</button>)}
+                </div>
+              )}
+              <p className="text-[10px] text-gray-400 text-center px-2 mt-1">Powered by Google Maps.</p>
+            </div>
+            {addresses.length > 0 && (
+              <div className="mt-4 flex-1 overflow-hidden flex flex-col">
+                <div className="relative flex py-2 items-center"><div className="flex-grow border-t border-gray-300"></div><span className="flex-shrink-0 mx-4 text-gray-400 text-xs uppercase tracking-wider font-bold">Or Choose Saved</span><div className="flex-grow border-t border-gray-300"></div></div>
+                <div className="overflow-y-auto space-y-2 mt-2 pr-1">
+                  {addresses.map(addr => (
+                    <button key={addr._id} onClick={() => { setSelectedAddress(addr); setShowLocationModal(false); }} className="w-full text-left p-3 border border-indigo-100 rounded-xl hover:bg-indigo-50 transition bg-white shadow-sm">
+                      <span className="font-bold text-sm text-indigo-700 block">{addr.label}</span><span className="text-xs text-gray-600 block truncate">{addr.address}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <button onClick={()=>setShowLocationModal(false)} className="w-full mt-4 text-gray-500 font-bold py-3 bg-gray-100 rounded-xl hover:bg-gray-200">Close</button>
           </div>
         </div>
       )}
 
-      <main className="flex-1 p-4 overflow-y-auto mt-2">
-        
-        {activeTab === 'deliveries' && (
-          <div className="animate-fade-in space-y-4">
-            <div className="flex justify-between items-end mb-4 px-1">
-              <h2 className="text-lg font-black text-gray-800">Active Tasks</h2>
-              <span className="bg-fuchsia-100 text-fuchsia-800 text-xs font-bold px-3 py-1 rounded-full">{activeDeliveries.length} Pending</span>
+      <header className="bg-indigo-600 text-white p-4 shadow-md sticky top-0 z-20">
+        <div className="max-w-4xl mx-auto flex justify-between items-center">
+          <div><h1 className="text-2xl font-extrabold tracking-tight flex items-center gap-2"><ShoppingBag className="w-6 h-6" /> QuickComm</h1></div>
+          <div className="flex items-center gap-3">
+            <button onClick={() => setTestMode(!testMode)} className={`flex items-center gap-1 text-[10px] px-2 py-1 rounded-full font-bold border transition ${testMode ? 'bg-red-500' : 'bg-indigo-700'}`}><Globe className="w-3 h-3" /> {testMode ? "Test" : "10km"}</button>
+            <button onClick={() => setShowLocationModal(true)} className="flex flex-col items-end max-w-[150px] text-right bg-indigo-700 p-2 rounded-lg hover:bg-indigo-800 transition shadow-inner">
+              <span className="text-[10px] font-bold text-indigo-200 uppercase">Delivering to</span>
+              <div className="flex items-center gap-1"><span className="font-bold text-sm truncate">{selectedAddress ? `${selectedAddress.label} (${selectedAddress.pincode})` : locationName}</span><MapPin className="w-4 h-4 text-pink-400 flex-shrink-0" /></div>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-4xl mx-auto w-full p-4 flex-1">
+        {activeTab === 'home' && (
+          <>
+            <div className="flex overflow-x-auto pb-4 gap-3 hide-scrollbar mt-4">
+              {baseCategories.map(cat => (
+                <button key={cat} onClick={() => setCategory(cat)} className={`whitespace-nowrap px-5 py-2 rounded-full font-semibold shadow-sm transition-all ${category === cat ? 'bg-pink-500 text-white transform scale-105' : 'bg-white text-gray-600 border'}`}>{cat}</button>
+              ))}
             </div>
 
-            {!isOnline ? (
-              <div className="bg-white p-8 rounded-2xl text-center border-2 border-dashed border-gray-300">
-                <Power className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                <h3 className="font-bold text-gray-600 mb-1">You are Offline</h3>
-                <p className="text-sm text-gray-400">Tap the power button above to connect your GPS and receive orders.</p>
+            {loading ? <div className="flex justify-center py-20 text-indigo-500"><Loader2 className="w-10 h-10 animate-spin" /></div> 
+            : products.length === 0 ? <div className="text-center py-16 bg-white rounded-2xl border"><h3 className="text-xl font-bold text-gray-700">No items nearby this location</h3></div>
+            : (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {products.map((product) => {
+                  const inCart = cart.find(item => item._id === product._id);
+                  return (
+                    <div key={product._id} className="bg-white rounded-xl shadow-sm border overflow-hidden flex flex-col">
+                      <div className="h-32 bg-white p-2 flex items-center justify-center"><img src={product.imageUrl} className="h-full object-contain" alt=""/></div>
+                      <div className="p-3 bg-gray-50 border-t flex-1 flex flex-col justify-between">
+                        <h3 className="font-bold text-sm text-gray-800 line-clamp-2 h-10 leading-tight">{product.name}</h3>
+                        <div className="flex justify-between items-end mt-2">
+                          <p className="text-lg font-extrabold text-gray-900">₹{product.sellingPrice}</p>
+                          {inCart ? (
+                            <div className="flex items-center gap-2 bg-pink-100 rounded px-2 py-1 border border-pink-200">
+                              <button onClick={() => updateCartQty(product._id, -1)} className="font-bold text-pink-700">-</button><span className="font-bold text-sm text-pink-900">{inCart.cartQty}</span><button onClick={() => updateCartQty(product._id, 1)} className="font-bold text-pink-700">+</button>
+                            </div>
+                          ) : <button onClick={() => addToCart(product)} className="bg-white border border-pink-500 text-pink-600 font-bold px-3 py-1 rounded hover:bg-pink-50 text-sm">ADD</button>}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
-            ) : activeDeliveries.length === 0 ? (
-              <div className="bg-white p-8 rounded-2xl text-center border border-gray-100 shadow-sm">
-                <Clock className="w-12 h-12 text-fuchsia-300 mx-auto mb-3 animate-pulse" />
-                <h3 className="font-bold text-gray-600 mb-1">Looking for Orders</h3>
-                <p className="text-sm text-gray-400">Your GPS is active. Stay nearby retailer hubs to get assignments faster.</p>
-              </div>
-            ) : (
-              activeDeliveries.map(order => (
-                <div key={order._id} className="bg-white rounded-2xl shadow-sm border border-fuchsia-100 overflow-hidden">
-                  <div className="bg-fuchsia-50 p-4 border-b border-fuchsia-100 flex justify-between items-center">
-                    <span className="font-mono text-xs font-bold text-fuchsia-600 tracking-widest">ID: {order._id?.slice(-6).toUpperCase()}</span>
-                    <span className="bg-white text-fuchsia-700 text-xs font-black px-2 py-1 rounded shadow-sm border border-fuchsia-200 uppercase">{order.status}</span>
-                  </div>
-                  
-                  <div className="p-5 space-y-4">
-                    <div className="flex gap-3 relative">
-                      <div className="flex flex-col items-center">
-                        <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center"><Package className="w-4 h-4 text-blue-600" /></div>
-                        <div className="w-0.5 h-10 bg-gray-200 my-1"></div>
-                      </div>
-                      <div>
-                        <p className="text-xs font-bold text-gray-400 uppercase">Pickup From</p>
-                        <p className="font-bold text-gray-800">{order.retailerId?.shopName || 'Retailer Store'}</p>
-                        <p className="text-sm text-gray-500">{order.retailerId?.address || 'Retailer Address missing'}</p>
-                      </div>
-                    </div>
-
-                    <div className="flex gap-3">
-                      <div className="flex flex-col items-center">
-                        <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center"><MapPin className="w-4 h-4 text-green-600" /></div>
-                      </div>
-                      <div>
-                        <p className="text-xs font-bold text-gray-400 uppercase">Deliver To</p>
-                        <p className="font-bold text-gray-800">{order.customerId?.name || 'Customer'}</p>
-                        <p className="text-sm text-gray-500 line-clamp-2">{order.deliveryAddress || order.customerId?.address || 'Customer Address missing'}</p>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3 pt-4 border-t border-gray-100">
-                      <button 
-                        onClick={() => handleOpenMap(order)}
-                        className="flex items-center justify-center gap-2 bg-indigo-50 text-indigo-700 py-3 rounded-xl font-bold text-sm hover:bg-indigo-100 transition shadow-sm border border-indigo-100"
-                      >
-                        <Navigation className="w-4 h-4" /> Navigate
-                      </button>
-                      <button 
-                        onClick={() => handlePhoneCall(order)}
-                        className="flex items-center justify-center gap-2 bg-gray-100 text-gray-700 py-3 rounded-xl font-bold text-sm hover:bg-gray-200 transition"
-                      >
-                        <Phone className="w-4 h-4" /> Call
-                      </button>
-                      
-                      {order.status === 'Assigned' && (
-                        <button onClick={() => handleStatusUpdate(order._id, 'Picked_Up')} className="col-span-2 bg-blue-600 text-white py-4 rounded-xl font-black text-sm uppercase tracking-wider hover:bg-blue-700 shadow-md transform active:scale-95 transition">
-                          Mark as Picked Up
-                        </button>
-                      )}
-                      
-                      {order.status === 'Picked_Up' && (
-                        <button onClick={() => handleStatusUpdate(order._id, 'Delivered')} className="col-span-2 bg-green-600 text-white py-4 rounded-xl font-black text-sm uppercase tracking-wider hover:bg-green-700 shadow-md transform active:scale-95 transition">
-                          Swipe to Deliver
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))
             )}
+          </>
+        )}
+
+        {activeTab === 'checkout' && (
+          <div className="animate-fade-in">
+            <h2 className="text-2xl font-bold mb-4 flex items-center gap-2"><ShoppingCart className="w-6 h-6"/> Checkout</h2>
+            <div className="bg-white rounded-2xl shadow-sm border p-5 mb-4">
+              <h3 className="font-bold text-gray-500 text-sm uppercase mb-3">Delivery Address</h3>
+              
+              <label className={`flex items-start gap-3 p-4 border rounded-xl cursor-pointer mb-4 transition ${!selectedAddress ? 'border-indigo-600 bg-indigo-50 shadow-sm' : 'hover:bg-gray-50'}`}>
+                <input type="radio" checked={!selectedAddress} onChange={() => { setSelectedAddress(null); setNewAddress(prev => ({...prev, address: '', pincode: '', landmark: ''})); }} className="mt-1 w-4 h-4 text-indigo-600" />
+                <div className="flex-1">
+                  <span className="font-bold bg-indigo-600 text-white px-2 py-0.5 rounded text-[10px] uppercase tracking-widest">Active Map Location</span>
+                  <p className="text-sm font-bold text-gray-800 mt-2">{locationName}</p>
+                  
+                  {!selectedAddress && (
+                    <div className="mt-3 bg-white p-3 rounded border border-indigo-200 grid grid-cols-1 md:grid-cols-2 gap-2 shadow-inner">
+                       <input type="text" placeholder="Contact Name" value={newAddress.contactName} onChange={(e) => setNewAddress({...newAddress, contactName: e.target.value})} className="border p-2 rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
+                       <input type="text" placeholder="Phone Number" value={newAddress.phoneNumber} onChange={(e) => setNewAddress({...newAddress, phoneNumber: e.target.value})} className="border p-2 rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
+                       
+                       <div className="relative md:col-span-2">
+                         <input type="text" placeholder="Start typing exact Google Maps Address..." value={newAddress.address} onChange={(e) => handleFormSearch(e.target.value)} className="w-full border p-2 rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
+                         {formSuggestions.length > 0 && (
+                            <div className="absolute w-full bg-white border rounded shadow-2xl z-10 max-h-40 overflow-y-auto mt-1">
+                               {formSuggestions.map((s, i) => <div key={i} onClick={() => selectFormSuggestion(s)} className="p-3 border-b hover:bg-indigo-50 text-xs cursor-pointer font-bold text-gray-700">{s.description}</div>)}
+                            </div>
+                         )}
+                       </div>
+                       
+                       <input type="text" placeholder="Landmark" value={newAddress.landmark} onChange={(e) => setNewAddress({...newAddress, landmark: e.target.value})} className="border p-2 rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
+                       <input type="text" placeholder="PIN Code" value={newAddress.pincode} onChange={(e) => setNewAddress({...newAddress, pincode: e.target.value})} className="border p-2 rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500 font-bold tracking-widest" />
+                    </div>
+                  )}
+                </div>
+              </label>
+
+              {addresses.length > 0 && <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 border-t pt-4">Or Use Saved Address</div>}
+              {addresses.map(addr => (
+                <label key={addr._id} className={`flex items-start gap-3 p-3 border rounded-xl cursor-pointer mb-2 transition ${selectedAddress?._id === addr._id ? 'border-indigo-600 bg-indigo-50 shadow-sm' : 'hover:bg-gray-50'}`}>
+                  <input type="radio" checked={selectedAddress?._id === addr._id} onChange={() => setSelectedAddress(addr)} className="mt-1 w-4 h-4 text-indigo-600" />
+                  <div className="flex-1"><span className="font-bold bg-gray-200 px-2 py-0.5 rounded text-xs text-gray-800">{addr.label}</span><p className="text-sm font-bold text-gray-800 mt-1">{addr.contactName} - {addr.phoneNumber}</p><p className="text-xs font-medium text-gray-600 mt-1">{addr.address} {addr.landmark ? `(${addr.landmark})` : ''} - PIN: {addr.pincode}</p></div>
+                </label>
+              ))}
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-sm border p-5 mb-4">
+              <h3 className="font-bold text-gray-500 text-sm uppercase mb-3">Bill Summary</h3>
+              <div className="flex justify-between text-gray-600 mb-2"><span className="font-medium">Item Total</span><span className="font-bold">₹{itemTotal}</span></div>
+              <div className="flex justify-between text-gray-600 mb-2"><span className="font-medium flex items-center gap-1">Delivery Fee (Calculated by Distance) <Info className="w-3 h-3 text-indigo-400"/></span><span className="font-bold">₹{deliveryFee}</span></div>
+              <div className="flex justify-between text-xl font-extrabold text-gray-900 border-t pt-3"><span>Grand Total</span><span>₹{grandTotal}</span></div>
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-sm border p-5 mb-6">
+              <h3 className="font-bold text-gray-500 text-sm uppercase mb-4">Select Payment Method</h3>
+              {upiStatus === 'pending' ? (
+                <>
+                  <label className={`flex items-center gap-3 p-4 border rounded-xl cursor-pointer mb-3 ${paymentMethod === 'UPI' ? 'border-indigo-600 bg-indigo-50' : 'hover:bg-gray-50'}`}>
+                    <input type="radio" name="payment" value="UPI" checked={paymentMethod === 'UPI'} onChange={(e) => setPaymentMethod(e.target.value)} className="w-5 h-5 text-indigo-600" /><span className="font-bold text-gray-800 flex-1">Pay via UPI App</span><Smartphone className="w-6 h-6 text-gray-400"/>
+                  </label>
+                  {paymentMethod === 'UPI' && (
+                    <div className="pl-8 mb-4 grid grid-cols-2 md:grid-cols-4 gap-2">
+                      <button onClick={() => triggerUPIApp('gpay')} className="bg-white border rounded-lg p-2 font-bold text-gray-700 hover:bg-gray-50 shadow-sm"><span className="text-lg">GPay</span></button>
+                      <button onClick={() => triggerUPIApp('phonepe')} className="bg-white border rounded-lg p-2 font-bold text-purple-700 hover:bg-purple-50 shadow-sm"><span className="text-lg">PhonePe</span></button>
+                      <button onClick={() => triggerUPIApp('paytm')} className="bg-white border rounded-lg p-2 font-bold text-blue-500 hover:bg-blue-50 shadow-sm"><span className="text-lg">Paytm</span></button>
+                      <button onClick={() => triggerUPIApp('other')} className="bg-white border rounded-lg p-2 font-bold text-gray-700 hover:bg-gray-50 shadow-sm"><span className="text-lg">Other</span></button>
+                    </div>
+                  )}
+                  <label className={`flex items-center gap-3 p-4 border rounded-xl cursor-pointer ${paymentMethod === 'COD' ? 'border-indigo-600 bg-indigo-50' : 'hover:bg-gray-50'}`}>
+                    <input type="radio" name="payment" value="COD" checked={paymentMethod === 'COD'} onChange={(e) => setPaymentMethod(e.target.value)} className="w-5 h-5 text-indigo-600" /><span className="font-bold text-gray-800 flex-1">Cash on Delivery (COD)</span>
+                  </label>
+                </>
+              ) : (
+                <div className="bg-blue-50 border border-blue-200 p-5 rounded-xl text-center">
+                  <CheckCircle className="w-12 h-12 text-blue-500 mx-auto mb-3 animate-pulse" />
+                  <h3 className="text-lg font-bold text-blue-900 mb-2">Awaiting Payment Confirmation</h3>
+                  <p className="text-sm text-blue-700 mb-4">Enter your 12-digit UPI UTR/Reference Number to verify your payment.</p>
+                  <input type="text" placeholder="Enter 12-Digit UTR" value={utrNumber} onChange={(e) => setUtrNumber(e.target.value)} className="w-full p-3 border border-blue-300 rounded-lg text-center font-bold tracking-widest mb-4 outline-none focus:ring-2 focus:ring-blue-500" />
+                  <button onClick={handlePlaceOrder} disabled={utrNumber.length < 6} className={`w-full font-bold py-3 rounded-xl shadow-md transition ${utrNumber.length >= 6 ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-gray-300 text-gray-500 cursor-not-allowed'}`}>Verify & Place Order</button>
+                  <button onClick={() => setUpiStatus('pending')} className="mt-3 text-sm font-bold text-gray-500 hover:underline">Cancel</button>
+                </div>
+              )}
+            </div>
+
+            {paymentMethod === 'COD' && upiStatus === 'pending' && (
+              <button onClick={handlePlaceOrder} className="w-full bg-indigo-600 text-white font-extrabold py-4 rounded-xl text-lg shadow-lg hover:bg-indigo-700 transition transform hover:scale-[1.02]">Place Order (₹{grandTotal})</button>
+            )}
+            <button onClick={() => setActiveTab('cart')} className="w-full mt-3 text-gray-500 font-bold py-2 hover:underline">Back to Cart</button>
           </div>
         )}
 
-        {activeTab === 'history' && (
-          <div className="animate-fade-in">
-            <h2 className="text-lg font-black text-gray-800 mb-4 px-1">Past Trips</h2>
-            <div className="space-y-3">
-              {deliveryHistory.length === 0 ? (
-                <p className="text-center text-gray-400 font-bold py-8">No deliveries completed yet.</p>
-              ) : (
-                deliveryHistory.map(order => (
-                  <div key={order._id} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className={`p-3 rounded-full ${order.status === 'Delivered' ? 'bg-green-100' : 'bg-red-100'}`}>
-                        {order.status === 'Delivered' ? <CheckCircle className="w-6 h-6 text-green-600" /> : <Package className="w-6 h-6 text-red-600" />}
+        {activeTab === 'account' && (
+          <div className="flex flex-col md:flex-row gap-6">
+            {!selectedOrder && (
+              <div className="w-full md:w-64 bg-white rounded-2xl shadow-sm border p-4 h-fit">
+                <nav className="space-y-1">
+                  <button onClick={() => setAccountSubTab('profile')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition ${accountSubTab === 'profile' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50'}`}><UserIcon className="w-5 h-5"/> Profile</button>
+                  <button onClick={() => setAccountSubTab('addresses')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition ${accountSubTab === 'addresses' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50'}`}><MapPin className="w-5 h-5"/> Addresses</button>
+                  <button onClick={() => setAccountSubTab('orders')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition ${accountSubTab === 'orders' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50'}`}><ShoppingBag className="w-5 h-5"/> My Orders</button>
+                </nav>
+                <button onClick={() => { localStorage.clear(); window.location.href='/'; }} className="w-full mt-8 flex items-center justify-center gap-2 text-red-500 font-bold py-3 hover:bg-red-50 rounded-xl transition"><LogOut className="w-5 h-5"/> Sign Out</button>
+              </div>
+            )}
+
+            <div className="flex-1">
+              {accountSubTab === 'profile' && !selectedOrder && (
+                <div className="bg-white rounded-2xl shadow-sm border p-6">
+                   <div className="w-24 h-24 bg-indigo-100 rounded-full flex items-center justify-center text-indigo-600 mb-6 mx-auto md:mx-0"><UserIcon className="w-12 h-12"/></div>
+                   <div className="space-y-6">
+                     <div><label className="text-xs font-bold text-gray-500 uppercase">Full Name</label><p className="text-xl font-bold text-gray-800">{userProfile.name}</p></div>
+                     <div><label className="text-xs font-bold text-gray-500 uppercase">Email Address</label><p className="text-lg font-medium text-gray-600">{userProfile.email}</p></div>
+                     <div className="bg-gray-50 p-4 rounded-xl border">
+                       <div className="flex justify-between items-center mb-2"><label className="text-xs font-bold text-gray-500 uppercase">Phone Number</label>{!isEditingPhone && <button onClick={() => setIsEditingPhone(true)} className="text-indigo-600 hover:underline text-sm font-bold flex items-center gap-1"><Edit2 className="w-4 h-4"/> Edit</button>}</div>
+                       {isEditingPhone ? (
+                         <div className="flex gap-2"><input type="text" value={editPhoneValue} onChange={e => setEditPhoneValue(e.target.value)} className="flex-1 p-2 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-bold" /><button onClick={handleSavePhone} className="bg-green-600 text-white px-4 py-2 rounded-lg font-bold">Save</button></div>
+                       ) : <p className="text-lg font-medium text-gray-800">{userProfile.contactNumber || 'Not provided'}</p>}
+                     </div>
+                   </div>
+                </div>
+              )}
+
+              {accountSubTab === 'addresses' && !selectedOrder && (
+                <div className="bg-white rounded-2xl shadow-sm border p-6">
+                  <h3 className="font-bold text-gray-800 text-lg mb-4 flex justify-between items-center">Saved Addresses <button onClick={() => {setEditAddressId(null); setNewAddress({ label: 'Home', contactName: userProfile.name, phoneNumber: userProfile.contactNumber || '', address: '', landmark: '', pincode: '', lat: location.lat, lng: location.lng }); setShowAddressForm(!showAddressForm);}} className="bg-indigo-100 text-indigo-700 text-sm px-3 py-1 rounded-lg hover:bg-indigo-200">+ Add New</button></h3>
+                  {showAddressForm && (
+                    <form onSubmit={handleSaveAddress} className="mb-6 p-5 bg-gray-50 border rounded-xl space-y-4 shadow-inner">
+                      <div className="grid grid-cols-2 gap-4">
+                        <select value={newAddress.label} onChange={e=>setNewAddress({...newAddress, label: e.target.value})} className="p-3 border rounded-lg font-bold outline-none"><option value="Home">Home</option><option value="Work">Work</option><option value="Other">Other</option></select>
+                        <input type="text" placeholder="Contact Name" required value={newAddress.contactName} onChange={e=>setNewAddress({...newAddress, contactName: e.target.value})} className="p-3 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500" />
                       </div>
-                      <div>
-                        <p className="font-bold text-gray-800 text-sm">{order.customerId?.name || 'Customer'}</p>
-                        <p className="text-xs text-gray-400 font-mono">{order._id?.slice(-6).toUpperCase()}</p>
+                      <div className="grid grid-cols-2 gap-4">
+                        <input type="text" placeholder="Phone Number" required value={newAddress.phoneNumber} onChange={e=>setNewAddress({...newAddress, phoneNumber: e.target.value})} className="w-full p-3 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500" />
+                        <input type="text" placeholder="Pincode" required value={newAddress.pincode} onChange={e=>setNewAddress({...newAddress, pincode: e.target.value})} className="w-full p-3 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-bold" />
+                      </div>
+                      <div className="relative">
+                        <input type="text" placeholder="Full Address (Powered by Google Maps)" required value={newAddress.address} onChange={(e) => handleFormSearch(e.target.value)} className="w-full p-3 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500" />
+                        {formSuggestions.length > 0 && (
+                          <div className="absolute w-full bg-white border rounded shadow-2xl z-10 max-h-40 overflow-y-auto mt-1">
+                             {formSuggestions.map((s, i) => <div key={i} onClick={() => selectFormSuggestion(s)} className="p-3 border-b hover:bg-indigo-50 text-sm cursor-pointer text-gray-700 font-bold">{s.description}</div>)}
+                          </div>
+                        )}
+                      </div>
+                      <input type="text" placeholder="Landmark (Optional)" value={newAddress.landmark} onChange={e=>setNewAddress({...newAddress, landmark: e.target.value})} className="w-full p-3 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500" />
+                      <div className="flex gap-2">
+                        <button type="submit" className="flex-1 bg-indigo-600 text-white font-bold py-3 rounded-lg hover:bg-indigo-700">{editAddressId ? 'Update Address' : 'Save Address'}</button>
+                        <button type="button" onClick={() => setShowAddressForm(false)} className="bg-gray-300 text-gray-800 font-bold py-3 px-6 rounded-lg hover:bg-gray-400">Cancel</button>
+                      </div>
+                    </form>
+                  )}
+                  <div className="space-y-3">
+                    {addresses.map(addr => (
+                      <div key={addr._id} className="border p-4 rounded-xl flex justify-between items-start bg-white shadow-sm">
+                        <div>
+                          <span className="bg-indigo-100 text-indigo-800 font-bold text-xs px-2 py-0.5 rounded uppercase tracking-wider">{addr.label}</span>
+                          <p className="text-gray-800 mt-2 font-bold">{addr.contactName} | {addr.phoneNumber}</p>
+                          <p className="text-gray-600 text-sm mt-1">{addr.address}</p>
+                          <p className="text-gray-500 text-xs mt-1">PIN: {addr.pincode} {addr.landmark ? `| Landmark: ${addr.landmark}` : ''}</p>
+                        </div>
+                        <div className="flex flex-col gap-2">
+                          <button onClick={() => handleEditAddressInit(addr)} className="text-indigo-600 p-2 hover:bg-indigo-50 rounded"><Edit2 className="w-5 h-5"/></button>
+                          <button onClick={() => handleDeleteAddress(addr._id)} className="text-red-500 p-2 hover:bg-red-50 rounded"><Trash2 className="w-5 h-5"/></button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {accountSubTab === 'orders' && !selectedOrder && (
+                <div className="space-y-4">
+                  <h3 className="font-bold text-gray-800 text-lg mb-4">Order History</h3>
+                  {myOrders.length === 0 && <p className="text-gray-500 font-bold p-4 text-center border rounded-xl bg-white">You haven't placed any orders yet.</p>}
+                  {myOrders.map(order => (
+                    <div key={order._id} onClick={() => setSelectedOrder(order)} className="bg-white rounded-2xl shadow-sm border p-5 hover:shadow-md transition cursor-pointer">
+                      <div className="flex justify-between items-center">
+                        <div><p className="font-mono text-xs font-bold text-gray-400">{order.orderId}</p><p className="text-sm font-bold text-gray-800 mt-1">{new Date(order.createdAt).toLocaleDateString()}</p></div>
+                        <div className="text-right">
+                           <span className={`text-[10px] uppercase font-bold px-2 py-1 rounded ${order.status.includes('Cancel') ? 'bg-red-100 text-red-800' : order.status.includes('Placed') ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}`}>{order.status}</span>
+                           <p className="font-extrabold text-lg mt-1 text-gray-900">₹{order.totalAmount}</p>
+                        </div>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <p className="font-black text-gray-800">₹15</p>
-                      <p className={`text-[10px] font-bold uppercase tracking-wider ${order.status === 'Delivered' ? 'text-green-600' : 'text-red-500'}`}>{order.status}</p>
+                  ))}
+                </div>
+              )}
+
+              {selectedOrder && (
+                <div className="bg-white rounded-2xl shadow-sm border p-6 animate-fade-in">
+                  <button onClick={() => setSelectedOrder(null)} className="flex items-center gap-2 text-indigo-600 font-bold mb-6 hover:underline"><ArrowLeft className="w-5 h-5"/> Back to Orders</button>
+                  <div className="border-b pb-4 mb-4 flex justify-between items-center"><div><h2 className="text-2xl font-black text-gray-800">Receipt</h2><p className="font-mono text-sm text-gray-500 mt-1">{selectedOrder.orderId}</p></div><Receipt className="w-10 h-10 text-gray-300"/></div>
+                  <div className="mb-6"><p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Delivery Location</p><p className="text-sm font-medium text-gray-800 bg-gray-50 p-3 rounded-lg border">{selectedOrder.deliveryAddress}</p></div>
+                  <div className="mb-6"><p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Products Ordered</p>
+                    <div className="space-y-2">
+                      {selectedOrder.subOrders.flatMap(sub => sub.items).map((item, idx) => (
+                           <div key={idx} className="flex justify-between items-center p-2 border-b">
+                             <div className="flex items-center gap-3"><span className="font-bold text-sm bg-gray-100 px-2 py-1 rounded">{item.cartQty || item.quantity || 1}x</span><span className="font-bold text-gray-800">{item.name}</span></div>
+                             <span className="font-medium text-gray-600">₹{item.price * (item.cartQty || item.quantity || 1)}</span>
+                           </div>
+                      ))}
                     </div>
                   </div>
-                ))
+                  <div className="bg-gray-50 p-4 rounded-xl border">
+                    <div className="flex justify-between text-xl font-extrabold text-gray-900 pt-3"><span>Total Paid via {selectedOrder.paymentMethod.split(' ')[0]}</span><span>₹{selectedOrder.totalAmount}</span></div>
+                  </div>
+                </div>
               )}
             </div>
           </div>
         )}
 
-        {activeTab === 'profile' && (
-          <div className="animate-fade-in space-y-4">
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 text-center">
-              <div className="w-24 h-24 bg-fuchsia-100 rounded-full flex items-center justify-center mx-auto mb-4 border-4 border-white shadow-lg">
-                <User className="w-10 h-10 text-fuchsia-600" />
+        {activeTab === 'cart' && (
+          <div className="animate-fade-in">
+            <h2 className="text-2xl font-bold mb-4 flex items-center gap-2"><ShoppingCart className="w-6 h-6"/> Your Cart</h2>
+            {cart.length === 0 ? (
+              <div className="text-center py-20 bg-white rounded-2xl shadow-sm border"><ShoppingCart className="w-16 h-16 mx-auto text-gray-300 mb-4"/><p className="text-xl font-bold text-gray-500">Your cart is empty</p></div>
+            ) : (
+              <div className="bg-white rounded-2xl shadow-sm border p-4">
+                {cart.map(item => (
+                  <div key={item._id} className="flex justify-between items-center mb-4 pb-4 border-b">
+                    <div className="flex items-center gap-3"><img src={item.imageUrl} className="w-12 h-12 object-contain" alt=""/><div><h4 className="font-bold text-sm text-gray-800">{item.name}</h4><p className="font-extrabold text-gray-900 text-sm mt-1">₹{item.sellingPrice}</p></div></div>
+                    <div className="flex items-center gap-3 bg-gray-100 rounded-lg px-3 py-1"><button onClick={() => updateCartQty(item._id, -1)} className="font-bold text-lg text-gray-600">-</button><span className="font-bold text-sm">{item.cartQty}</span><button onClick={() => updateCartQty(item._id, 1)} className="font-bold text-lg text-gray-600">+</button></div>
+                  </div>
+                ))}
+                <div className="mt-6 border-t pt-4"><div className="flex justify-between text-xl font-extrabold text-gray-900"><span>Sub Total</span><span>₹{itemTotal}</span></div></div>
+                <button onClick={() => setActiveTab('checkout')} className="w-full mt-6 bg-pink-500 text-white font-extrabold py-4 rounded-xl text-lg shadow-lg hover:bg-pink-600 flex justify-center items-center gap-2">Proceed to Checkout <ChevronRight className="w-5 h-5"/></button>
               </div>
-              <h2 className="text-xl font-black text-gray-800">{agentProfile.name}</h2>
-              <p className="text-gray-500 font-medium mb-6">{agentProfile.contactNumber || 'No Phone Number'}</p>
-              
-              <div className="grid grid-cols-2 gap-4 border-t border-gray-100 pt-6">
-                <div>
-                  <p className="text-xs font-bold text-gray-400 uppercase">Avg Rating</p>
-                  <p className="text-xl font-black text-yellow-500">4.9 ★</p>
-                </div>
-                <div>
-                  <p className="text-xs font-bold text-gray-400 uppercase">On-Time</p>
-                  <p className="text-xl font-black text-green-500">98%</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-gray-900 text-white p-5 rounded-2xl shadow-lg relative overflow-hidden">
-              <div className="absolute -right-4 -top-4 opacity-10">
-                <Map className="w-32 h-32" />
-              </div>
-              <div className="flex justify-between items-center mb-3 relative z-10">
-                <h3 className="font-black flex items-center gap-2"><Navigation className="w-5 h-5 text-blue-400" /> Radar Status</h3>
-                <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider ${isOnline ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
-                  {isOnline ? 'Active' : 'Standby'}
-                </span>
-              </div>
-              
-              <div className="bg-black/30 p-3 rounded-lg font-mono text-xs text-gray-300 mb-4 relative z-10">
-                <p>LAT: <span className="text-blue-300 font-bold">{liveLocation.lat ? liveLocation.lat.toFixed(6) : 'Waiting...'}</span></p>
-                <p>LNG: <span className="text-blue-300 font-bold">{liveLocation.lng ? liveLocation.lng.toFixed(6) : 'Waiting...'}</span></p>
-                
-                {currentAddress && (
-                  <p className="mt-3 pt-3 border-t border-gray-700/50 text-fuchsia-300 font-sans leading-tight">
-                    <MapPin className="w-3 h-3 inline mr-1" /> {currentAddress}
-                  </p>
-                )}
-              </div>
-
-              <button onClick={refreshLiveLocation} className="w-full bg-blue-600 hover:bg-blue-500 py-3 rounded-xl font-bold text-sm shadow-md transition relative z-10">
-                Detect Current Location
-              </button>
-            </div>
-
-            <button onClick={handleLogout} className="w-full bg-red-50 text-red-600 py-4 rounded-xl font-bold border border-red-100 flex items-center justify-center gap-2 hover:bg-red-100 transition">
-              <LogOut className="w-5 h-5" /> Sign Out from Fleet
-            </button>
+            )}
           </div>
         )}
       </main>
 
-      <nav className="bg-white border-t border-gray-200 fixed bottom-0 left-0 right-0 max-w-md mx-auto z-40 pb-safe">
-        <div className="flex justify-around items-center p-2">
-          <button onClick={() => setActiveTab('deliveries')} className={`flex flex-col items-center p-2 w-20 transition-colors ${activeTab === 'deliveries' ? 'text-fuchsia-600' : 'text-gray-400 hover:text-gray-600'}`}>
-            <Package className={`w-6 h-6 mb-1 ${activeTab === 'deliveries' ? 'animate-bounce' : ''}`} />
-            <span className="text-[10px] font-bold uppercase tracking-wider">Tasks</span>
-          </button>
-          <button onClick={() => setActiveTab('history')} className={`flex flex-col items-center p-2 w-20 transition-colors ${activeTab === 'history' ? 'text-fuchsia-600' : 'text-gray-400 hover:text-gray-600'}`}>
-            <Clock className="w-6 h-6 mb-1" />
-            <span className="text-[10px] font-bold uppercase tracking-wider">History</span>
-          </button>
-          <button onClick={() => setActiveTab('profile')} className={`flex flex-col items-center p-2 w-20 transition-colors ${activeTab === 'profile' ? 'text-fuchsia-600' : 'text-gray-400 hover:text-gray-600'}`}>
-            <User className="w-6 h-6 mb-1" />
-            <span className="text-[10px] font-bold uppercase tracking-wider">Profile</span>
-          </button>
-        </div>
+      <nav className="fixed bottom-0 w-full bg-white border-t flex justify-around items-center pb-safe pt-2 px-2 z-30 h-16 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+        <button onClick={() => setActiveTab('home')} className={`flex flex-col items-center flex-1 ${activeTab==='home' ? 'text-indigo-600' : 'text-gray-400'}`}><Home className="w-6 h-6 mb-1"/><span className="text-[10px] font-bold">Home</span></button>
+        <button onClick={() => setActiveTab('cart')} className={`flex flex-col items-center flex-1 relative ${activeTab==='cart'||activeTab==='checkout' ? 'text-pink-600' : 'text-gray-400'}`}><ShoppingCart className="w-6 h-6 mb-1"/>{cart.length>0&&<span className="absolute -top-1 right-4 bg-pink-500 text-white text-[10px] font-bold w-4 h-4 flex items-center justify-center rounded-full shadow-sm">{cart.reduce((s,i)=>s+i.cartQty,0)}</span>}<span className="text-[10px] font-bold">Cart</span></button>
+        <button onClick={() => { setActiveTab('account'); setAccountSubTab('profile'); }} className={`flex flex-col items-center flex-1 ${activeTab==='account' ? 'text-indigo-600' : 'text-gray-400'}`}><UserIcon className="w-6 h-6 mb-1"/><span className="text-[10px] font-bold">Account</span></button>
       </nav>
-
     </div>
   );
 }
