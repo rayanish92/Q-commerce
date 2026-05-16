@@ -7,7 +7,7 @@ export default function AgentApp() {
   const [isOnline, setIsOnline] = useState(false);
   const [message, setMessage] = useState('');
   
-  // NEW: Live Location State
+  // Live Location State
   const [liveLocation, setLiveLocation] = useState({ lat: null, lng: null });
   
   // Data States
@@ -111,7 +111,6 @@ export default function AgentApp() {
     const newStatus = !isOnline;
     
     if (newStatus === true) {
-      // Going online: Get current location and update state
       setMessage("Connecting to satellite...");
       navigator.geolocation.getCurrentPosition(
         async (position) => {
@@ -134,7 +133,6 @@ export default function AgentApp() {
         }
       );
     } else {
-      // Going offline
       axios.put(`${API_URL}/api/orders/agent/status`, { isOnline: false }, getAuth())
         .then(() => {
           setIsOnline(false);
@@ -143,6 +141,54 @@ export default function AgentApp() {
         })
         .catch(() => setMessage("Failed to go offline."));
     }
+  };
+
+  // =========================================================
+  // NEW: DYNAMIC GOOGLE MAPS ROUTING
+  // =========================================================
+  const handleOpenMap = (order) => {
+    let destination = '';
+
+    // Step 1: Decide where the driver needs to go based on the current order status
+    if (order.status === 'Assigned') {
+      // Driver needs to go to the Retailer to pick up the items
+      destination = `${order.retailerId?.shopName}, ${order.retailerId?.address}`;
+    } else {
+      // Driver has picked it up and needs to go to the Customer
+      destination = order.deliveryAddress || order.customerId?.address;
+    }
+
+    // Step 2: Validate we actually have an address to send to Google Maps
+    if (!destination || destination.trim() === 'undefined, undefined' || destination.trim() === '') {
+      setMessage("Error: No valid address provided for this location.");
+      setTimeout(() => setMessage(''), 3000);
+      return;
+    }
+
+    // Step 3: Launch Google Maps Directions (Auto-uses current GPS as origin)
+    const mapUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}`;
+    window.open(mapUrl, '_blank');
+  };
+
+  // =========================================================
+  // CALL CUSTOMER/RETAILER
+  // =========================================================
+  const handlePhoneCall = (order) => {
+    let phone = '';
+    if (order.status === 'Assigned') {
+      phone = order.retailerId?.contactNumber;
+    } else {
+      phone = order.customerId?.contactNumber;
+    }
+
+    if (!phone) {
+      setMessage("No phone number available.");
+      setTimeout(() => setMessage(''), 3000);
+      return;
+    }
+    
+    // This triggers the phone's native dialer app
+    window.location.href = `tel:${phone}`;
   };
 
   return (
@@ -220,7 +266,7 @@ export default function AgentApp() {
                       <div>
                         <p className="text-xs font-bold text-gray-400 uppercase">Pickup From</p>
                         <p className="font-bold text-gray-800">{order.retailerId?.shopName || 'Retailer Store'}</p>
-                        <p className="text-sm text-gray-500">{order.retailerId?.address || 'Retailer Address'}</p>
+                        <p className="text-sm text-gray-500">{order.retailerId?.address || 'Retailer Address missing'}</p>
                       </div>
                     </div>
 
@@ -231,19 +277,35 @@ export default function AgentApp() {
                       <div>
                         <p className="text-xs font-bold text-gray-400 uppercase">Deliver To</p>
                         <p className="font-bold text-gray-800">{order.customerId?.name || 'Customer'}</p>
-                        <p className="text-sm text-gray-500 line-clamp-2">{order.customerId?.deliveryAddress || 'Customer Delivery Address'}</p>
+                        <p className="text-sm text-gray-500 line-clamp-2">{order.deliveryAddress || order.customerId?.address || 'Customer Address missing'}</p>
                       </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-3 pt-4 border-t border-gray-100">
+                      {/* UPDATED NAVIGATION BUTTON */}
+                      <button 
+                        onClick={() => handleOpenMap(order)}
+                        className="flex items-center justify-center gap-2 bg-indigo-50 text-indigo-700 py-3 rounded-xl font-bold text-sm hover:bg-indigo-100 transition shadow-sm border border-indigo-100"
+                      >
+                        <Navigation className="w-4 h-4" /> Navigate
+                      </button>
+                      
+                      {/* UPDATED PHONE BUTTON */}
+                      <button 
+                        onClick={() => handlePhoneCall(order)}
+                        className="flex items-center justify-center gap-2 bg-gray-100 text-gray-700 py-3 rounded-xl font-bold text-sm hover:bg-gray-200 transition"
+                      >
+                        <Phone className="w-4 h-4" /> Call
+                      </button>
+                      
                       {order.status === 'Assigned' && (
-                        <button onClick={() => handleStatusUpdate(order._id, 'Picked_Up')} className="col-span-2 bg-blue-600 text-white py-4 rounded-xl font-black text-sm uppercase tracking-wider hover:bg-blue-700 shadow-md">
+                        <button onClick={() => handleStatusUpdate(order._id, 'Picked_Up')} className="col-span-2 bg-blue-600 text-white py-4 rounded-xl font-black text-sm uppercase tracking-wider hover:bg-blue-700 shadow-md transform active:scale-95 transition">
                           Mark as Picked Up
                         </button>
                       )}
                       
                       {order.status === 'Picked_Up' && (
-                        <button onClick={() => handleStatusUpdate(order._id, 'Delivered')} className="col-span-2 bg-green-600 text-white py-4 rounded-xl font-black text-sm uppercase tracking-wider hover:bg-green-700 shadow-md">
+                        <button onClick={() => handleStatusUpdate(order._id, 'Delivered')} className="col-span-2 bg-green-600 text-white py-4 rounded-xl font-black text-sm uppercase tracking-wider hover:bg-green-700 shadow-md transform active:scale-95 transition">
                           Swipe to Deliver
                         </button>
                       )}
@@ -284,7 +346,6 @@ export default function AgentApp() {
           </div>
         )}
 
-        {/* PROFILE TAB WITH LIVE GPS DETECTOR */}
         {activeTab === 'profile' && (
           <div className="animate-fade-in space-y-4">
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 text-center">
@@ -306,7 +367,6 @@ export default function AgentApp() {
               </div>
             </div>
 
-            {/* LIVE GPS DETECTOR WIDGET */}
             <div className="bg-gray-900 text-white p-5 rounded-2xl shadow-lg relative overflow-hidden">
               <div className="absolute -right-4 -top-4 opacity-10">
                 <Map className="w-32 h-32" />
