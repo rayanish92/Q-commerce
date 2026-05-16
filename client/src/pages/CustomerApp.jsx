@@ -38,24 +38,41 @@ export default function CustomerApp() {
   const [testMode, setTestMode] = useState(false);
   const [cart, setCart] = useState([]);
   
-  // DYNAMIC CATEGORIES IN CUSTOMER APP
-  const baseCategories = ['All', 'Groceries', 'Vegetables', 'Fruits', 'Dairy', 'Snacks', 'Beverages', 'Pharmacy', 'Meat & Seafood', 'Bakery', 'Personal Care', 'Home & Kitchen'];
-  
   // PAYMENT & FEE STATES
   const [paymentMethod, setPaymentMethod] = useState('UPI');
   const [upiStatus, setUpiStatus] = useState('pending');
   const [utrNumber, setUtrNumber] = useState('');
   const [deliveryFee, setDeliveryFee] = useState(25);
 
-  const API_URL = import.meta.env.VITE_API_URL;
+  const baseCategories = ['All', 'Groceries', 'Vegetables', 'Fruits', 'Dairy', 'Snacks', 'Beverages', 'Pharmacy', 'Meat & Seafood', 'Bakery', 'Personal Care', 'Home & Kitchen'];
+
+  const API_URL = import.meta.env.VITE_API_URL || '';
+  const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
   const getAuth = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
 
-  useEffect(() => { fetchUserProfile(); detectLocation(); }, []);
+  // ---------------------------------------------------------
+  // INJECT GOOGLE MAPS SCRIPT ON LOAD
+  // ---------------------------------------------------------
+  useEffect(() => {
+    if (GOOGLE_MAPS_API_KEY && !document.querySelector('#google-maps-script')) {
+      const script = document.createElement('script');
+      script.id = 'google-maps-script';
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&libraries=places`;
+      script.async = true;
+      script.defer = true;
+      document.head.appendChild(script);
+    }
+  }, [GOOGLE_MAPS_API_KEY]);
+
+  useEffect(() => { 
+    fetchUserProfile(); 
+    detectLocation(); 
+  }, []);
+  
   useEffect(() => {
     if (activeTab === 'home') fetchNearbyProducts();
     if (activeTab === 'account' && accountSubTab === 'orders') fetchMyOrders();
     
-    // Background Auto-Sync every 5 seconds!
     const interval = setInterval(() => {
       if (activeTab === 'home') fetchNearbyProducts();
       if (activeTab === 'account' && accountSubTab === 'orders') fetchMyOrders();
@@ -95,19 +112,32 @@ export default function CustomerApp() {
     } catch (err) { alert('Failed to update phone number'); }
   };
 
+  // ---------------------------------------------------------
+  // REVERSE GEOCODING (Converts GPS to Address via Google)
+  // ---------------------------------------------------------
   const detectLocation = () => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        async (pos) => {
-          const lat = pos.coords.latitude; const lng = pos.coords.longitude;
+        (pos) => {
+          const lat = pos.coords.latitude; 
+          const lng = pos.coords.longitude;
           setLocation({ lat, lng });
           setSelectedAddress(null); 
-          try {
-            const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
-            const data = await res.json();
-            setLocationName(data.display_name.split(',').slice(0,2).join(','));
-            setNewAddress(prev => ({...prev, lat, lng, address: '', pincode: '', landmark: ''}));
-          } catch(err) { setLocationName('Current GPS Location'); }
+          
+          if (window.google) {
+            const geocoder = new window.google.maps.Geocoder();
+            geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+              if (status === 'OK' && results[0]) {
+                const formatted = results[0].formatted_address;
+                setLocationName(formatted.split(',').slice(0,2).join(', '));
+                setNewAddress(prev => ({...prev, lat, lng, address: '', pincode: '', landmark: ''}));
+              } else {
+                setLocationName('Current GPS Location');
+              }
+            });
+          } else {
+            setLocationName('Current GPS Location');
+          }
           setShowLocationModal(false);
         },
         () => { setLocationName('Default Map Center'); setSelectedAddress(null); }
@@ -115,37 +145,89 @@ export default function CustomerApp() {
     }
   };
 
-  const handleModalSearch = async (e) => {
-    const query = e.target.value; setModalAddress(query);
-    if (query.length > 2) {
-      try {
-        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=8&countrycodes=in`);
-        setModalSuggestions(await res.json());
-      } catch (err) { setModalSuggestions([]); }
-    } else { setModalSuggestions([]); }
+  // ---------------------------------------------------------
+  // GOOGLE PLACES AUTOCOMPLETE FOR MODAL (Top App Bar)
+  // ---------------------------------------------------------
+  const handleModalSearch = (e) => {
+    const query = e.target.value; 
+    setModalAddress(query);
+    if (query.length > 2 && window.google) {
+      const service = new window.google.maps.places.AutocompleteService();
+      service.getPlacePredictions({ input: query, componentRestrictions: { country: 'in' } }, (predictions, status) => {
+        if (status === window.google.maps.places.PlacesServiceStatus.OK && predictions) {
+          setModalSuggestions(predictions);
+        } else {
+          setModalSuggestions([]);
+        }
+      });
+    } else { 
+      setModalSuggestions([]); 
+    }
   };
 
   const selectModalSuggestion = (suggestion) => {
-    const lat = parseFloat(suggestion.lat); const lng = parseFloat(suggestion.lon);
-    setLocation({ lat, lng });
-    setLocationName(suggestion.display_name.split(',')[0] + ', ' + suggestion.display_name.split(',')[1]);
-    setNewAddress(prev => ({...prev, lat, lng, address: '', pincode: '', landmark: ''}));
-    setSelectedAddress(null); 
-    setShowLocationModal(false); setModalSuggestions([]); setModalAddress('');
+    if (!window.google) return;
+    const geocoder = new window.google.maps.Geocoder();
+    geocoder.geocode({ placeId: suggestion.place_id }, (results, status) => {
+      if (status === 'OK' && results[0]) {
+        const loc = results[0].geometry.location;
+        const lat = loc.lat();
+        const lng = loc.lng();
+        setLocation({ lat, lng });
+        setLocationName(suggestion.description.split(',').slice(0, 2).join(', '));
+        setNewAddress(prev => ({...prev, lat, lng, address: '', pincode: '', landmark: ''}));
+        setSelectedAddress(null); 
+        setShowLocationModal(false); 
+        setModalSuggestions([]); 
+        setModalAddress('');
+      }
+    });
   };
 
-  const handleFormSearch = async (query) => {
-    if (query.length > 3) {
-      try {
-        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5&countrycodes=in`);
-        setFormSuggestions(await res.json());
-      } catch (err) { setFormSuggestions([]); }
-    } else { setFormSuggestions([]); }
+  // ---------------------------------------------------------
+  // GOOGLE PLACES AUTOCOMPLETE FOR CHECKOUT FORM
+  // ---------------------------------------------------------
+  const handleFormSearch = (query) => {
+    setNewAddress(prev => ({...prev, address: query}));
+    if (query.length > 2 && window.google) {
+      const service = new window.google.maps.places.AutocompleteService();
+      service.getPlacePredictions({ input: query, componentRestrictions: { country: 'in' } }, (predictions, status) => {
+        if (status === window.google.maps.places.PlacesServiceStatus.OK && predictions) {
+          setFormSuggestions(predictions);
+        } else {
+          setFormSuggestions([]);
+        }
+      });
+    } else { 
+      setFormSuggestions([]); 
+    }
   };
 
   const selectFormSuggestion = (suggestion) => {
-    setNewAddress(prev => ({...prev, address: suggestion.display_name, lat: parseFloat(suggestion.lat), lng: parseFloat(suggestion.lon)}));
-    setFormSuggestions([]);
+    if (!window.google) return;
+    const geocoder = new window.google.maps.Geocoder();
+    geocoder.geocode({ placeId: suggestion.place_id }, (results, status) => {
+      if (status === 'OK' && results[0]) {
+        const loc = results[0].geometry.location;
+        
+        // Try to auto-extract the PIN Code if Google provides it
+        let pincode = '';
+        results[0].address_components.forEach(component => {
+          if (component.types.includes('postal_code')) {
+            pincode = component.long_name;
+          }
+        });
+
+        setNewAddress(prev => ({
+          ...prev, 
+          address: suggestion.description, 
+          lat: loc.lat(), 
+          lng: loc.lng(),
+          pincode: pincode || prev.pincode // Use extracted pin, or keep whatever was there
+        }));
+        setFormSuggestions([]);
+      }
+    });
   };
 
   const fetchNearbyProducts = async () => {
@@ -244,13 +326,13 @@ export default function CustomerApp() {
             <button onClick={detectLocation} className="w-full flex items-center justify-center gap-2 bg-indigo-100 text-indigo-700 font-bold py-3 rounded-xl mb-4 hover:bg-indigo-200 shadow-sm"><Crosshair className="w-5 h-5"/> Use Current GPS Location</button>
             <div className="relative flex py-1 items-center"><div className="flex-grow border-t border-gray-300"></div><span className="flex-shrink-0 mx-4 text-gray-400 text-xs uppercase tracking-wider font-bold">Or Search City/Town</span><div className="flex-grow border-t border-gray-300"></div></div>
             <div className="mt-2 relative">
-              <input type="text" placeholder="Search town or nearest city..." value={modalAddress} onChange={handleModalSearch} className="w-full p-3 border rounded-xl mb-2 focus:ring-2 focus:ring-indigo-500 outline-none shadow-inner" />
+              <input type="text" placeholder="Search Google Maps..." value={modalAddress} onChange={handleModalSearch} className="w-full p-3 border rounded-xl mb-2 focus:ring-2 focus:ring-indigo-500 outline-none shadow-inner" />
               {modalSuggestions.length > 0 && (
                 <div className="bg-white border rounded-lg shadow-lg overflow-hidden absolute w-full z-10 max-h-48 overflow-y-auto">
-                  {modalSuggestions.map((sug, i) => <button key={i} onClick={() => selectModalSuggestion(sug)} className="w-full text-left p-3 border-b hover:bg-gray-50 text-sm text-gray-700 font-medium">{sug.display_name}</button>)}
+                  {modalSuggestions.map((sug, i) => <button key={i} onClick={() => selectModalSuggestion(sug)} className="w-full text-left p-3 border-b hover:bg-gray-50 text-sm text-gray-700 font-medium">{sug.description}</button>)}
                 </div>
               )}
-              <p className="text-[10px] text-gray-400 text-center px-2 mt-1">If your exact village isn't listed, select your nearest town. You can type your exact village name manually during Checkout.</p>
+              <p className="text-[10px] text-gray-400 text-center px-2 mt-1">Powered by Google Maps.</p>
             </div>
             {addresses.length > 0 && (
               <div className="mt-4 flex-1 overflow-hidden flex flex-col">
@@ -337,10 +419,10 @@ export default function CustomerApp() {
                        <input type="text" placeholder="Phone Number" value={newAddress.phoneNumber} onChange={(e) => setNewAddress({...newAddress, phoneNumber: e.target.value})} className="border p-2 rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
                        
                        <div className="relative md:col-span-2">
-                         <input type="text" placeholder="Start typing exact Village/Street/Area..." value={newAddress.address} onChange={(e) => { setNewAddress({...newAddress, address: e.target.value}); handleFormSearch(e.target.value); }} className="w-full border p-2 rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
+                         <input type="text" placeholder="Start typing exact Google Maps Address..." value={newAddress.address} onChange={(e) => handleFormSearch(e.target.value)} className="w-full border p-2 rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
                          {formSuggestions.length > 0 && (
                             <div className="absolute w-full bg-white border rounded shadow-2xl z-10 max-h-40 overflow-y-auto mt-1">
-                               {formSuggestions.map((s, i) => <div key={i} onClick={() => selectFormSuggestion(s)} className="p-3 border-b hover:bg-indigo-50 text-xs cursor-pointer font-bold text-gray-700">{s.display_name}</div>)}
+                               {formSuggestions.map((s, i) => <div key={i} onClick={() => selectFormSuggestion(s)} className="p-3 border-b hover:bg-indigo-50 text-xs cursor-pointer font-bold text-gray-700">{s.description}</div>)}
                             </div>
                          )}
                        </div>
@@ -450,10 +532,10 @@ export default function CustomerApp() {
                         <input type="text" placeholder="Pincode" required value={newAddress.pincode} onChange={e=>setNewAddress({...newAddress, pincode: e.target.value})} className="w-full p-3 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-bold" />
                       </div>
                       <div className="relative">
-                        <input type="text" placeholder="Full Address (Start typing to search...)" required value={newAddress.address} onChange={(e)=>{setNewAddress({...newAddress, address: e.target.value}); handleFormSearch(e.target.value);}} className="w-full p-3 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500" />
+                        <input type="text" placeholder="Full Address (Powered by Google Maps)" required value={newAddress.address} onChange={(e) => handleFormSearch(e.target.value)} className="w-full p-3 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500" />
                         {formSuggestions.length > 0 && (
                           <div className="absolute w-full bg-white border rounded shadow-2xl z-10 max-h-40 overflow-y-auto mt-1">
-                             {formSuggestions.map((s, i) => <div key={i} onClick={() => selectFormSuggestion(s)} className="p-3 border-b hover:bg-indigo-50 text-sm cursor-pointer text-gray-700 font-bold">{s.display_name}</div>)}
+                             {formSuggestions.map((s, i) => <div key={i} onClick={() => selectFormSuggestion(s)} className="p-3 border-b hover:bg-indigo-50 text-sm cursor-pointer text-gray-700 font-bold">{s.description}</div>)}
                           </div>
                         )}
                       </div>
